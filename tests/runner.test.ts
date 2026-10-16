@@ -45,7 +45,7 @@ describe("execução dos Workers", () => {
     expect(source.close).toHaveBeenCalledOnce();
     expect(store.close).toHaveBeenCalledOnce();
   });
-  it("propaga falha parcial para permitir reexecução com upserts idempotentes", async () => {
+  it("propaga falha parcial para permitir reexecução com gravações idempotentes", async () => {
     const { deps, source, store } = setup([[row], [{ ...row, cursor: "2", recurso_id: "2" }]]);
     store.insertOnce.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error("write failed"));
     await expect(runRule("expired-compliance", env, undefined, deps)).rejects.toThrow("write failed");

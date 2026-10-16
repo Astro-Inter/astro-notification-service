@@ -50,17 +50,21 @@ export interface Candidate {
   evento_id?: string;
 }
 
-export interface NotificationDocument {
+export interface NotificationPayload {
   id_usuario: number;
   titulo: string;
-  idevento?: number;
+  id_evento?: number;
   mensagem: string;
   data_criacao: Date;
-  workspace_id: number;
-  tipo: RuleId;
-  recurso: { tipo: string; id: string };
-  chave_deduplicacao: string;
-  regra_versao: number;
+}
+
+export interface NotificationDocument extends NotificationPayload {
+  _id: number;
+}
+
+export interface NotificationIntent {
+  document: NotificationPayload;
+  deduplicationKey: string;
 }
 
 export interface CandidateSource {
@@ -70,6 +74,6 @@ export interface CandidateSource {
 
 export interface NotificationStore {
   ensureIndexes(): Promise<void>;
-  insertOnce(document: NotificationDocument): Promise<boolean>;
+  insertOnce(notification: NotificationIntent): Promise<boolean>;
   close(): Promise<void>;
 }
