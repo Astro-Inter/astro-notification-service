@@ -22,7 +22,7 @@ describe("entrada de cada Worker", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await createWorker("expiring-compliance").scheduled!(controller, {}, context);
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toMatchObject({
-      event: "execution_skipped", reason: "disabled",
+      event: "execution_finished", status: "skipped", reason: "disabled",
     });
   });
 });
