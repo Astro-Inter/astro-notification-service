@@ -5,7 +5,7 @@ import type { NotificationIntent } from "../src/shared/types";
 
 const intent: NotificationIntent = {
   document: { id_usuario: 2, titulo: "Treinamento pendente", mensagem: "Conclua o treinamento pendente.",
-    data_criacao: new Date("2026-06-25T12:19:40.233Z"), idevento: 1 },
+    data_criacao: new Date("2026-06-25T12:19:40.233Z"), id_evento: 1 },
   deduplicationKey: "example",
 };
 
@@ -58,11 +58,11 @@ describe("persistência idempotente", () => {
     await expect(store.ensureIndexes()).rejects.toThrow("Identificador");
     expect(counters.updateOne).not.toHaveBeenCalled();
   });
-  it("omite idevento quando não existe", async () => {
+  it("omite id_evento quando não existe", async () => {
     const { store, notifications } = setup();
-    const { idevento: _, ...document } = intent.document;
+    const { id_evento: _, ...document } = intent.document;
     await store.insertOnce({ ...intent, document });
-    expect(notifications.insertOne.mock.calls[0]![0]).not.toHaveProperty("idevento");
+    expect(notifications.insertOne.mock.calls[0]![0]).not.toHaveProperty("id_evento");
   });
   it.each(["controle", "legado"])("não recria notificações reconhecidas pelo %s", async origin => {
     const { store, notifications, deliveries, counters } = setup();

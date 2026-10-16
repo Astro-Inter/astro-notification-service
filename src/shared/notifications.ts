@@ -43,7 +43,7 @@ export function notificationFor(rule: RuleId, row: Candidate, context: RuleConte
   return {
     document: {
       id_usuario: userId, mensagem: message, data_criacao: context.now,
-      ...(eventId === undefined ? {} : { idevento: eventId }), titulo: title,
+      ...(eventId === undefined ? {} : { id_evento: eventId }), titulo: title,
     },
     deduplicationKey: JSON.stringify([1, rule, workspaceId, userId, row.recurso_id, row.referencia, stage]),
   };

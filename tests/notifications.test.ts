@@ -24,7 +24,7 @@ describe("contrato e identidade das notificações", () => {
     const at7 = notificationFor("expiring-compliance", row, context);
     const expired = notificationFor("expired-compliance", row, context);
     expect(expired.document.titulo).toBe("Conformidade vencida");
-    expect(expired.document).not.toHaveProperty("idevento");
+    expect(expired.document).not.toHaveProperty("id_evento");
     const renewed = notificationFor("expiring-compliance", { ...row, referencia: "2027-10-22" }, context);
     expect(new Set([at30, at7, expired, renewed].map(n => n.deduplicationKey)).size).toBe(4);
   });
@@ -40,8 +40,8 @@ describe("contrato e identidade das notificações", () => {
     ["pending-validations", "Conclusão aguardando avaliação"],
   ] as const)("inclui título e ID do evento em %s sem confundir o recurso de origem", (rule, title) => {
     const notification = notificationFor(rule, { ...row, evento_id: "42", titulo_evento: "Treinamento" }, context);
-    expect(notification.document).toMatchObject({ titulo: title, idevento: 42 });
-    expect(Object.keys(notification.document).sort()).toEqual(["data_criacao", "id_usuario", "idevento", "mensagem", "titulo"]);
+    expect(notification.document).toMatchObject({ titulo: title, id_evento: 42 });
+    expect(Object.keys(notification.document).sort()).toEqual(["data_criacao", "id_evento", "id_usuario", "mensagem", "titulo"]);
     expect(JSON.parse(notification.deduplicationKey)[4]).toBe("10");
     expect(notification.document.mensagem).toContain("Treinamento");
     const renamed = notificationFor(rule, { ...row, evento_id: "42", titulo_evento: "Título atualizado" }, context);

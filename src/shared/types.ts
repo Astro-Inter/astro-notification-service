@@ -53,7 +53,7 @@ export interface Candidate {
 export interface NotificationPayload {
   id_usuario: number;
   titulo: string;
-  idevento?: number;
+  id_evento?: number;
   mensagem: string;
   data_criacao: Date;
 }

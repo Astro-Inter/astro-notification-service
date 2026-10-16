@@ -12,7 +12,7 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
   let names: { notifications: string; deliveries: string; counters: string };
   const intent: NotificationIntent = { deduplicationKey: "event-1", document: {
     id_usuario: 2, mensagem: "Conclua o treinamento pendente.",
-    data_criacao: new Date("2026-06-25T12:19:40.233Z"), idevento: 1, titulo: "Treinamento pendente",
+    data_criacao: new Date("2026-06-25T12:19:40.233Z"), id_evento: 1, titulo: "Treinamento pendente",
   } };
 
   beforeAll(async () => {
@@ -46,9 +46,9 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
     expect(await store.insertOnce({ ...intent, document: { ...intent.document, titulo: "Não deve substituir" } })).toBe(false);
     const withEvent = await db.collection(names.notifications).findOne({});
     expect(withEvent).toEqual({ _id: 1, ...intent.document });
-    const { idevento: _, ...document } = intent.document;
+    const { id_evento: _, ...document } = intent.document;
     expect(await store.insertOnce({ deduplicationKey: "compliance-1", document })).toBe(true);
-    const withoutEvent = await db.collection(names.notifications).findOne({ titulo: document.titulo, idevento: { $exists: false } });
+    const withoutEvent = await db.collection(names.notifications).findOne({ titulo: document.titulo, id_evento: { $exists: false } });
     expect(withoutEvent).toEqual({ _id: 2, ...document });
   }, 30000);
 

@@ -61,7 +61,7 @@ export function collectionStore(db: Db, client: MongoClient, close: () => Promis
           await notifications.insertOne({
             _id: counter.value, id_usuario: document.id_usuario, mensagem: document.mensagem,
             data_criacao: document.data_criacao,
-            ...(document.idevento === undefined ? {} : { idevento: document.idevento }),
+            ...(document.id_evento === undefined ? {} : { id_evento: document.id_evento }),
             titulo: document.titulo,
           }, { session });
           return true;

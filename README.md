@@ -145,7 +145,7 @@ Collection: `notificacoes`. Cada nova notificação contém **somente** estes ca
 | `titulo` | String | Título preenchido em todas as novas notificações |
 | `mensagem` | String | Texto exibido ao usuário |
 | `data_criacao` | Date | Instante de criação do aviso, armazenado em UTC |
-| `idevento` | Número, opcional | ID do evento nos avisos de prazo e de validação; ausente nos avisos de conformidade |
+| `id_evento` | Número, opcional | ID do evento nos avisos de prazo e de validação; ausente nos avisos de conformidade |
 
 Exemplo completo em Extended JSON, sem campos adicionais:
 
@@ -155,12 +155,12 @@ Exemplo completo em Extended JSON, sem campos adicionais:
   "id_usuario": 2,
   "mensagem": "Você tem uma participação pendente no evento “Treinamento”. O prazo termina em 2026-10-17 12:00:00 (horário de São Paulo).",
   "data_criacao": { "$date": "2026-10-16T12:00:00.000Z" },
-  "idevento": 1,
+  "id_evento": 1,
   "titulo": "Prazo de evento próximo do fim"
 }
 ```
 
-`idevento` corresponde a `evento.id_evento`, convertido para número com validação
+`id_evento` corresponde a `evento.id_evento`, convertido para número com validação
 de precisão, e não ao ID da turma, da participação ou da conclusão. Os avisos de
 conformidade omitem esse campo, sem gravar `null` ou um ID artificial.
 
@@ -204,7 +204,7 @@ gravar um destinatário diferente por arredondamento.
 
 O novo formato se aplica após publicar esta versão; não há migração automática
 dos documentos existentes. A API precisa aceitar o histórico com ObjectId e os
-novos IDs numéricos, além de mapear `titulo` e `idevento`. Em **16/10/2026**, a
+novos IDs numéricos, além de mapear `titulo` e `id_evento`. Em **16/10/2026**, a
 `main` consultada da `astro-api` ainda declara `@MongoId(FieldType.OBJECT_ID)`
 com ID `String` e não declara esses dois campos. O alinhamento desse consumidor
 precisa ocorrer antes de liberar o novo contrato de ponta a ponta.

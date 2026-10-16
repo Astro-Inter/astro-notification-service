@@ -70,7 +70,7 @@ describe("consultas executadas em PostgreSQL (PGlite)", () => {
       (2,3,'REJEITADO','2026-10-14 10:00:00','2026-10-15 10:00:00');`);
     const rows = await candidates("class-deadlines");
     expect(rows.map(row => [row.cursor, row.evento_id])).toEqual([["1", "1"], ["3", "1"]]);
-    expect(rows.map(row => notificationFor("class-deadlines", row, context).document.idevento)).toEqual([1, 1]);
+    expect(rows.map(row => notificationFor("class-deadlines", row, context).document.id_evento)).toEqual([1, 1]);
     expect(await candidates("class-deadlines", "3")).toEqual([]);
   });
   it("exclui eventos cancelados, outros workspaces e prazos encerrados", async () => {
@@ -94,7 +94,7 @@ describe("consultas executadas em PostgreSQL (PGlite)", () => {
       (5,5,'PENDENTE','2026-10-12 12:00:00',NULL);`);
     const rows = await candidates("pending-validations");
     expect(rows.map(row => [row.cursor, row.usuario_id, row.evento_id])).toEqual([["1", "3", "1"], ["5", "3", "4"]]);
-    expect(rows.map(row => notificationFor("pending-validations", row, context).document.idevento)).toEqual([1, 4]);
+    expect(rows.map(row => notificationFor("pending-validations", row, context).document.id_evento)).toEqual([1, 4]);
     await db.exec(`UPDATE conclusao_evento SET status='CONCLUIDO', data_validacao='2026-10-15 10:00:00';`);
     expect(await candidates("pending-validations")).toEqual([]);
   });
