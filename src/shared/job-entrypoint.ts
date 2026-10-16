@@ -8,6 +8,10 @@ export abstract class NotificationJob extends WorkerEntrypoint<Env> {
 
   async run() { return executeRule(this.rule, this.env); }
 
+  async preview() {
+    return executeRule(this.rule, { ...this.env, ENABLED: "true", DRY_RUN: "true" });
+  }
+
   async status() {
     return { service: "astro-notification-service", rule: this.rule,
       enabled: this.env.ENABLED === "true", dryRun: this.env.DRY_RUN !== "false",

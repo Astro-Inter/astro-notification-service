@@ -11,7 +11,7 @@ const configs = workers.map(rule => {
   delete config.account_id;
   delete config.$schema;
   config.main = resolve(`src/workers/${rule}.ts`);
-  config.vars = { ...config.vars, ENABLED: "false" };
+  config.vars = { ...config.vars, ENABLED: "false", DRY_RUN: "true" };
   return { config, secrets: { DATABASE_URL: "", MONGODB_URI: "", MONGODB_DATABASE: "" } };
 });
 const scheduler = JSON.parse(readFileSync("workers/scheduler/wrangler.jsonc", "utf8"));
