@@ -47,10 +47,13 @@ export interface Candidate {
   nr_id?: number;
   dias_restantes?: number;
   titulo_evento?: string;
+  evento_id?: string;
 }
 
 export interface NotificationDocument {
   id_usuario: number;
+  titulo: string;
+  idevento?: number;
   mensagem: string;
   data_criacao: Date;
   workspace_id: number;
