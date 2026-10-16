@@ -9,6 +9,6 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "c561f75615114c0b9358bc5c35159b7d" }],
-  "triggers": { "crons": ["10 * * * *"] },
+  "triggers": { "crons": [] },
   "vars": { "ENABLED": "false", "DRY_RUN": "true", "WORKSPACE_IDS": "", "CLASS_WARNING_HOURS": "24" }
 }
