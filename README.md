@@ -120,7 +120,7 @@ para tentar inferir ausência de registro.
 2. Consultar candidatos no PostgreSQL em transações somente de leitura, por lotes.
 3. Montar as notificações e suas chaves de negócio.
 4. Em simulação, contabilizar candidatos sem conectar ao MongoDB.
-5. Com gravação habilitada, garantir os índices e executar upserts idempotentes.
+5. Com gravação habilitada, garantir índices e contador e gravar cada aviso em uma transação idempotente.
 6. Registrar contagens e duração e fechar as conexões da execução.
 
 A paginação usa o último ID consultado, sem `OFFSET`. Se `MAX_BATCHES` for
@@ -136,33 +136,27 @@ o mesmo fato não é recriado a cada consulta.
 
 ## Contrato no MongoDB
 
-Collection: `notificacoes`. Os campos já consumidos pela API são preservados:
+Collection: `notificacoes`. Cada nova notificação contém **somente** estes campos:
 
 | Campo | Tipo BSON | Uso |
 | --- | --- | --- |
-| `_id` | ObjectId | Gerado pelo driver; não usa contador numérico |
+| `_id` | Número | Inteiro positivo gerado pelo contador compartilhado |
 | `id_usuario` | Número | Destinatário compatível com o modelo atual da API |
 | `titulo` | String | Título preenchido em todas as novas notificações |
 | `mensagem` | String | Texto exibido ao usuário |
 | `data_criacao` | Date | Instante de criação do aviso, armazenado em UTC |
 | `idevento` | Número, opcional | ID do evento nos avisos de prazo e de validação; ausente nos avisos de conformidade |
-| `workspace_id` | Número | Workspace validado na origem |
-| `tipo` | String | Identificador da regra |
-| `recurso` | Documento | Tipo e ID do recurso de origem |
-| `chave_deduplicacao` | String | Identidade estável do aviso |
-| `regra_versao` | Número | Versão da regra que criou o documento |
 
-Exemplo de uma nova notificação de prazo, em Extended JSON (campos de controle
-omitidos para facilitar a leitura):
+Exemplo completo em Extended JSON, sem campos adicionais:
 
 ```json
 {
-  "_id": { "$oid": "6aa62bf0d6836e73d7a6d003" },
+  "_id": 1,
   "id_usuario": 2,
-  "titulo": "Prazo de evento próximo do fim",
   "mensagem": "Você tem uma participação pendente no evento “Treinamento”. O prazo termina em 2026-10-17 12:00:00 (horário de São Paulo).",
   "data_criacao": { "$date": "2026-10-16T12:00:00.000Z" },
-  "idevento": 1
+  "idevento": 1,
+  "titulo": "Prazo de evento próximo do fim"
 }
 ```
 
@@ -174,22 +168,46 @@ Os títulos usados são “Conformidade próxima do vencimento”, “Conformida
 vencida”, “Prazo de evento próximo do fim” e “Conclusão aguardando avaliação”,
 conforme a regra. O nome do evento permanece na mensagem.
 
-A inclusão de `titulo` e `idevento` vale para notificações novas após a publicação
-desta versão. Não há migração automática dos documentos existentes: a API deve
-continuar aceitando notificações antigas sem esses campos. Os novos campos não
-alteram a chave de deduplicação nem provocam o reenvio de avisos anteriores.
+Workspace, regra, recurso, versão e chave de deduplicação **não são gravados no
+documento da notificação**. O controle fica separado:
 
-A chave combina versão, regra, workspace, destinatário, recurso, data de
-referência e faixa do aviso. Um índice único parcial protege essa chave,
-inclusive em execuções concorrentes, sem exigir alterações nas notificações
-antigas que não possuem esse campo. O upsert usa `$setOnInsert`: reexecuções
-não alteram a mensagem nem a data de criação do aviso existente.
+- `notificacoes_controle`: `_id` é a chave estável de negócio e `notification_id`
+  referencia o ID numérico do aviso. O índice único de `_id` impede repetir a
+  chave; outro índice único impede associar o mesmo ID a duas chaves.
+- `notificacoes_contadores`: o documento `_id: "notificacoes"` mantém `value`, o
+  contador compartilhado pelos Workers. Na inicialização, `$max` garante um piso
+  igual ao maior `_id` numérico já existente, sem diminuir o contador. O próximo
+  ID parte de 1 quando não há IDs numéricos. ObjectIds antigos não entram no cálculo.
+
+A chave conserva a composição anterior: versão, regra, workspace, destinatário,
+recurso, data de referência e faixa. Antes de criar um aviso, o serviço consulta
+o controle e as chaves da versão anterior em `notificacoes`. Assim, avisos antigos
+com chave continuam reconhecidos sem serem regravados. Documentos legados sem
+chave não permitem reconstruir sua identidade e são apenas preservados.
+
+O incremento do contador, o registro de controle e a inserção do aviso pertencem
+à **mesma transação MongoDB**. Uma falha desfaz as três operações e permite
+reexecutar a mesma chave. Disputas concorrentes são tratadas pelo driver e pelo
+controle único. Reexecuções não alteram título, mensagem ou data do aviso existente.
+O MongoDB precisa suportar transações (replica set ou cluster fragmentado), e o
+usuário da conexão precisa acessar as três collections e criar seus índices.
+O cluster configurado foi validado com transações em collections temporárias.
+
+Outros produtores de notificações numéricas devem usar o mesmo contador e
+protocolo de gravação; não podem escolher `_id` manualmente em paralelo.
 
 O índice de consulta é `(id_usuario ASC, data_criacao DESC, _id DESC)`. Os índices
 são criados na primeira execução com gravação habilitada. Se o índice único não
 puder ser garantido, nenhuma notificação será gravada por essa execução.
 IDs incompatíveis com a precisão inteira do JavaScript são rejeitados, evitando
 gravar um destinatário diferente por arredondamento.
+
+O novo formato se aplica após publicar esta versão; não há migração automática
+dos documentos existentes. A API precisa aceitar o histórico com ObjectId e os
+novos IDs numéricos, além de mapear `titulo` e `idevento`. Em **16/10/2026**, a
+`main` consultada da `astro-api` ainda declara `@MongoId(FieldType.OBJECT_ID)`
+com ID `String` e não declara esses dois campos. O alinhamento desse consumidor
+precisa ocorrer antes de liberar o novo contrato de ponta a ponta.
 
 A Home do colaborador na `astro-api` consulta as três notificações mais recentes;
 o estado de visualização é tratado pela API no Redis. A Home do gestor ainda
@@ -213,6 +231,7 @@ workers/
 scripts/         desenvolvimento, publicação, importação de credenciais e diagnóstico
 tests/           regras, consultas SQL, persistência e execução
   runtime/       inicialização e eventos agendados dos cinco Workers no workerd
+  integration/   contrato e transações no MongoDB real, somente por execução explícita
 .github/workflows/ci.yml   validação automática sem credenciais de produção
 ```
 
@@ -332,6 +351,12 @@ A versão
 inicial não possui rotas públicas: `workers_dev` e URLs de preview de produção
 estão desativados; o preview temporário do Wrangler é usado no desenvolvimento.
 
+Para publicar a mudança de contrato numérico, pause primeiro o disparador e aguarde
+as execuções anteriores terminarem. Alinhe o consumidor da API, publique todos os
+Workers de regras e só então retome o disparador. Evite executar simultaneamente
+produtores da versão antiga e da nova para a mesma regra: eles guardam o controle
+de deduplicação em locais diferentes. Um rollback também deve começar pela pausa.
+
 ## Testes e observabilidade
 
 - Testes de regras: identidade dos avisos, faixas de antecedência, IDs e escopo.
@@ -349,16 +374,27 @@ sem registrar URI, senha, destinatário ou texto da notificação. O erro é
 propagado ao runtime; não há promessa de retentativa automática. Consulte as
 execuções no painel e reexecute após corrigir a causa.
 
-O pipeline de gravação é coberto por testes com substitutos da collection; os
-testes padrão e a simulação não escrevem no MongoDB real. A validação operacional
-da migração usa uma collection temporária isolada para conferir índices e upserts
-concorrentes e a remove ao terminar, antes de disparar as regras de produção.
+O pipeline de gravação é coberto por testes com substitutos das collections; os
+testes padrão e a simulação não escrevem no MongoDB real. Para executar os cinco
+testes de integração explicitamente, configure as credenciais no `.env` e rode:
+
+```sh
+npm run test:mongo
+```
+
+Essa execução usa apenas collections temporárias `__astro_contract_<uuid>_*`,
+removidas após cada teste. Ela verifica o conjunto exato de campos, evento opcional,
+IDs numéricos, disputas pela mesma chave, concorrência entre chaves diferentes,
+compatibilidade com chaves antigas, inicialização do contador, rollback após falha
+e limite de precisão. Nenhuma collection de negócio é escrita pelo teste.
 
 Na validação operacional de **16/10/2026**, os cinco destinos responderam aos
 Service Bindings reais. A execução inicial criou três notificações automáticas;
 uma segunda execução conservou exatamente três, sem alterar os documentos legados.
-Os documentos novos usam ObjectId e BSON Date e o índice único parcial foi
-confirmado. A collection temporária de testes foi removida.
+Naquela versão, os documentos usavam ObjectId e BSON Date e o índice único parcial
+foi confirmado. A collection temporária de testes foi removida. A correção posterior
+do contrato passou nos cinco testes de integração com `_id` numérico, BSON Date
+e controle separado; isso não significa que essa correção já foi publicada.
 
 ## Referências
 
