@@ -5,3 +5,5 @@ export const workers = [
   "pending-validations",
   "missing-compliance",
 ];
+
+export const allWorkers = [...workers, "scheduler"];

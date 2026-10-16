@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { workers } from "./worker-list.mjs";
+import { allWorkers as workers } from "./worker-list.mjs";
 
 const [action, selection, ...extra] = process.argv.slice(2);
 if (!["dev", "build", "deploy"].includes(action) ||
@@ -16,11 +16,12 @@ if (!["dev", "build", "deploy"].includes(action) ||
 const wrangler = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 for (const worker of selection ? [selection] : workers) {
   let configPath = `workers/${worker}/wrangler.jsonc`;
-  if (action === "dev" && !extra.includes("--remote")) {
-    // Banco local direto: não usar o pool de produção no desenvolvimento local.
+  if (action === "dev") {
+    // Todo preview começa pausado; produção habilitada não deve ativar testes locais.
     const config = JSON.parse(readFileSync(configPath, "utf8"));
-    delete config.hyperdrive;
+    if (!extra.includes("--remote")) delete config.hyperdrive;
     delete config.$schema;
+    config.vars = { ...config.vars, ENABLED: "false", ...(worker !== "scheduler" ? { DRY_RUN: "true" } : {}) };
     config.main = resolve(`src/workers/${worker}.ts`);
     configPath = `.wrangler/local/${worker}.json`;
     mkdirSync(".wrangler/local", { recursive: true });

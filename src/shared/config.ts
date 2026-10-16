@@ -21,13 +21,10 @@ function boundedInteger(value: string | undefined, fallback: number, max: number
 }
 
 export function settingsFromEnv(env: Env): Settings {
-  const workspaceIds = [...new Set((env.WORKSPACE_IDS ?? "").split(",")
-    .map(value => value.trim()).filter(Boolean).map(positiveId))];
-  if (!workspaceIds.length) throw new Error("Defina WORKSPACE_IDS antes de habilitar o Worker");
   const expiryWarningDays = [...new Set((env.EXPIRY_WARNING_DAYS ?? "30,7").split(",")
     .map(value => boundedInteger(value.trim(), 30, 365)))].sort((a, b) => a - b);
   return {
-    dryRun: booleanSetting(env.DRY_RUN, true), workspaceIds, expiryWarningDays,
+    dryRun: booleanSetting(env.DRY_RUN, true), expiryWarningDays,
     classWarningHours: boundedInteger(env.CLASS_WARNING_HOURS, 24, 720),
     validationWaitHours: boundedInteger(env.VALIDATION_WAIT_HOURS, 48, 2160),
     batchSize: boundedInteger(env.BATCH_SIZE, 100, 500),

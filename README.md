@@ -15,30 +15,57 @@ Tarefa pai: [SCRUM-557 — Implementar serviço de notificações automáticas d
 Quatro análises estão implementadas. O quinto Worker, de obrigações sem registro,
 está reservado e retorna `applicability_pending`, mesmo se alguém tentar habilitá-lo.
 
-Os cinco começam com `ENABLED=false`, `DRY_RUN=true`, escopo de workspaces vazio e
-`triggers.crons=[]`. Não há envio automático de notificações nesse estado.
+As quatro regras prontas usam `ENABLED=true` e `DRY_RUN=false` em produção.
+Elas analisam **todos os workspaces**, inclusive os cadastrados posteriormente,
+sem lista de IDs. O Worker de obrigações sem registro permanece desabilitado.
+Os Workers de regras mantêm `triggers.crons=[]` e recebem chamadas internas.
 
-Na preparação do ambiente em **15/10/2026**, o Cloudflare recusou novos
-agendamentos com o código `10072`: a conta já usa os cinco Cron Triggers do plano
-gratuito. As agendas dos outros serviços foram preservadas. Para habilitar as
-agendas deste serviço, será necessário liberar capacidade ou alterar o plano.
-Os horários abaixo são propostas, não agendas ativas.
+O `astro-shared-scheduler` compartilha a agenda `0 * * * *` entre notificações e
+resumos. Em **16/10/2026**, essa agenda substitui o Cron do
+`astro-session-summary-service`, mantendo o total de cinco Cron Triggers na conta
+gratuita. E-mails, limpeza de dados, RPA e atualização de NRs conservam suas agendas.
+O estado desativado do processamento de resumos foi preservado.
 
 ## Workers e regras
 
-| Identificador | Nome no Cloudflare | Responsabilidade | Agendamento proposto em UTC |
+| Identificador | Nome no Cloudflare | Responsabilidade | Execução pelo disparador |
 | --- | --- | --- | --- |
-| `expiring-compliance` | `astro-notification-expiring-compliance` | Conformidades próximas do vencimento | `0 11 * * *` — diariamente, 08h em São Paulo |
-| `expired-compliance` | `astro-notification-expired-compliance` | Conformidades vencidas | `5 11 * * *` — diariamente, 08h05 em São Paulo |
-| `class-deadlines` | `astro-notification-class-deadlines` | Participações pendentes próximas do prazo da turma | `10 * * * *` — a cada hora, no minuto 10 |
-| `pending-validations` | `astro-notification-pending-validations` | Conclusões aguardando avaliação do gestor | `15 11 * * *` — diariamente, 08h15 em São Paulo |
+| `expiring-compliance` | `astro-notification-expiring-compliance` | Conformidades próximas do vencimento | Diariamente, 08h em São Paulo |
+| `expired-compliance` | `astro-notification-expired-compliance` | Conformidades vencidas | Diariamente, 08h em São Paulo |
+| `class-deadlines` | `astro-notification-class-deadlines` | Participações pendentes próximas do prazo da turma | A cada hora, no minuto zero |
+| `pending-validations` | `astro-notification-pending-validations` | Conclusões aguardando avaliação do gestor | Diariamente, 08h em São Paulo |
 | `missing-compliance` | `astro-notification-missing-compliance` | Obrigações sem conformidade registrada | Sem agenda; aplicabilidade pendente |
+
+### Disparador compartilhado
+
+O sexto Worker, `astro-shared-scheduler`, possui a única agenda deste conjunto.
+O binding `SUMMARY` aponta para o entrypoint `ScheduledJob` do serviço de resumos;
+`CLASSES`, `EXPIRING`, `EXPIRED` e `VALIDATIONS` apontam para `RuleJob` de cada regra.
+O disparador não acessa bancos nem recebe credenciais deles.
+
+As chamadas usam Service Bindings RPC e aguardam a execução do método `run()` de
+cada destino. Não há endpoint HTTP público de processamento. `Promise.allSettled`
+garante que uma falha não suprima os outros disparos; o resultado geral ainda
+registra a falha e a propaga ao runtime. Cada serviço respeita sua habilitação.
+
+Resumos e turmas são chamados a cada hora. As outras três regras entram na mesma
+execução quando o horário **original do evento agendado** está na hora UTC definida
+em `DAILY_HOUR_UTC`, inicialmente 11h UTC (08h de São Paulo). Uma execução atrasada
+usa o horário do evento, e não o relógio de início do handler, para selecionar tarefas.
+Não há retentativa ou reconstrução automática de agendas perdidas.
+
+O entrypoint interno `SchedulerControl` oferece `inspect()` para consultar os
+destinos e `run(timestampEmMilissegundos)` para reexecutar um horário. A reexecução
+respeita as flags reais dos serviços e pode gravar notificações. `RuleJob.preview()`
+sempre usa simulação e permite conferir candidatos sem gravar, mesmo com a regra
+habilitada em produção. A regra de obrigações sem registro não é disparada.
 
 ### Conformidades
 
 As análises de validade consideram colaboradores ativos, com cargo e unidade
 ativos, registros aplicáveis e NRs não revogadas. O cargo e a unidade precisam
-pertencer ao mesmo workspace, presente em `WORKSPACE_IDS`.
+pertencer ao mesmo workspace. As consultas incluem todos os workspaces e verificam
+os vínculos para não misturar colaboradores, cargos, unidades ou responsáveis.
 
 A seleção de um registro por colaborador e NR segue a precedência documentada
 em `vw_conformidades`: aplicabilidade verdadeira primeiro, depois a maior
@@ -89,7 +116,7 @@ para tentar inferir ausência de registro.
 
 ## Fluxo de execução
 
-1. Verificar se a regra está habilitada e validar o escopo explícito de workspaces.
+1. Verificar se a regra está habilitada.
 2. Consultar candidatos no PostgreSQL em transações somente de leitura, por lotes.
 3. Montar as notificações e suas chaves de negócio.
 4. Em simulação, contabilizar candidatos sem conectar ao MongoDB.
@@ -98,8 +125,8 @@ para tentar inferir ausência de registro.
 
 A paginação usa o último ID consultado, sem `OFFSET`. Se `MAX_BATCHES` for
 atingido e ainda houver candidatos, a execução falha com `BATCH_LIMIT_REACHED`;
-ela não informa sucesso ocultando registros restantes. Reduza o escopo ou ajuste
-a capacidade antes da próxima execução. Falhas parciais podem ser reexecutadas:
+ela não informa sucesso ocultando registros restantes. Ajuste a capacidade antes
+da próxima execução. Falhas parciais podem ser reexecutadas:
 os avisos já gravados serão reconhecidos pelas mesmas chaves.
 
 As consultas são atuais por lote. PostgreSQL e MongoDB não participam de uma
@@ -148,7 +175,8 @@ histórico e filtragem de situações superadas exigem alinhamento com a API.
 
 ```text
 src/
-  workers/       uma entrada por Worker
+  workers/       uma entrada por regra e uma para o disparador
+  scheduler/     seleção das tarefas horárias e diárias e despacho independente
   rules/         consultas de candidatos por regra
   shared/        configuração, execução, PostgreSQL, MongoDB e notificações
 workers/
@@ -186,23 +214,24 @@ Os arquivos de credenciais são ignorados pelo Git e os valores não são impres
 npm run dev -- expiring-compliance
 ```
 
-O modo local gera uma configuração ignorada em `.wrangler/local`, remove o
-Hyperdrive de produção e usa `DATABASE_URL`. Conexões diretas remotas exigem TLS
+O comando `dev`, local ou remoto, gera uma configuração ignorada em `.wrangler/local`
+com execução desabilitada e simulação habilitada nas regras, mesmo com produção
+ativa. Variáveis explicitamente passadas pelo desenvolvedor podem sobrescrevê-la.
+O modo local remove o Hyperdrive de produção e usa `DATABASE_URL`. Conexões diretas remotas exigem TLS
 com certificado verificado; para o Aiven, forneça o CA em `PG_CA_CERT`.
 Conexões locais sem TLS precisam indicar `sslmode=disable` explicitamente.
 
 Com o servidor aberto, `GET /health` verifica somente o processo.
 `GET /__scheduled` dispara o evento de teste do Wrangler. Para testar a consulta,
-configure `ENABLED=true`, mantenha `DRY_RUN=true` e informe `WORKSPACE_IDS`.
+configure `ENABLED=true` e mantenha `DRY_RUN=true`. Todos os workspaces são analisados.
 
 Para simular no Cloudflare usando o Hyperdrive já configurado:
 
 ```sh
-npm run dev -- expired-compliance --remote --port 8787 --var ENABLED:true --var DRY_RUN:true --var WORKSPACE_IDS:1
+npm run dev -- expired-compliance --remote --port 8787 --var ENABLED:true --var DRY_RUN:true
 ```
 
-Esse comando usa o workspace 1 como exemplo; informe apenas IDs autorizados para
-o teste. O modo remoto usa um preview temporário e pode acessar o banco real.
+O modo remoto usa um preview temporário e pode acessar o banco real.
 `DRY_RUN=true` impede gravações e criação de índices no MongoDB.
 
 O diagnóstico local `npm run connections:check -- <arquivo-env>` apenas consulta
@@ -212,9 +241,8 @@ o schema do PostgreSQL e executa `ping` no MongoDB; não modifica registros.
 
 | Variável ou binding | Padrão | Significado |
 | --- | --- | --- |
-| `ENABLED` | `false` | Habilita a análise; aceita apenas `true` ou `false` |
-| `DRY_RUN` | `true` | Simula sem abrir conexão de persistência com MongoDB |
-| `WORKSPACE_IDS` | Vazio | Lista explícita de IDs, como `1,2`; vazia impede execução habilitada |
+| `ENABLED` | `true` nas quatro regras prontas | Habilita a análise; aceita apenas `true` ou `false`; fallback seguro `false` |
+| `DRY_RUN` | `false` em produção | Simula sem abrir conexão de persistência com MongoDB quando `true`; fallback seguro `true` |
 | `EXPIRY_WARNING_DAYS` | `30,7` | Antecedências em dias, até 365 |
 | `CLASS_WARNING_HOURS` | `24` | Janela de proximidade do prazo, até 720 horas |
 | `VALIDATION_WAIT_HOURS` | `48` | Tempo mínimo aguardando avaliação, até 2160 horas |
@@ -225,6 +253,7 @@ o schema do PostgreSQL e executa `ping` no MongoDB; não modifica registros.
 | `PG_CA_CERT` | Sem padrão | CA em PEM para conexão direta; aceita quebras escapadas `\n` |
 | `MONGODB_URI` | Secret | Conexão com o MongoDB |
 | `MONGODB_DATABASE` | Secret | Nome do banco que contém `notificacoes` |
+| `DAILY_HOUR_UTC` | `11` no disparador | Hora UTC das três análises diárias, de 0 a 23 |
 
 As antecedências de 30/7 dias e os intervalos de 24/48 horas são valores iniciais
 configuráveis, sujeitos à validação do produto. Alterar uma faixa muda a identidade
@@ -245,18 +274,32 @@ npm run deploy -- expiring-compliance
 npm run secrets:upload -- expiring-compliance
 ```
 
-Sem identificador, `build`, `deploy` e `secrets:upload` processam os cinco Workers,
-um de cada vez. O envio de secrets lê o `.env` e transfere somente os dois campos
+Sem identificador, `build` e `deploy` processam os cinco Workers de regras e por
+último o disparador. `secrets:upload` processa somente os cinco Workers de regras.
+O envio de secrets lê o `.env` e transfere somente os dois campos
 do MongoDB pela entrada padrão, sem colocar os valores na linha de comando.
 
-Antes de ativar, configure o escopo e valide os resultados em simulação. Quando
-houver capacidade para novas agendas, preencha `triggers.crons` de cada Worker
-com a expressão desejada, defina `ENABLED=true` e publique. Mantenha `DRY_RUN=true`
-até concluir a conferência; só então altere para `false` e publique novamente.
+Para uma nova instalação, publique primeiro as regras desabilitadas ou em simulação,
+configure os secrets e confira as conexões e candidatos antes de habilitar gravação.
 O Worker `missing-compliance` continuará bloqueado até implementar a aplicabilidade.
 
+Na migração do agendamento:
+
+1. Publicar as regras com o entrypoint `RuleJob` e testar `preview()`.
+2. Publicar o [serviço de resumos](https://github.com/Astro-Inter/astro-session-summary-service)
+   com `src/entrypoint.ts`, `ScheduledJob` e `triggers.crons=[]`, preservando `ENABLED`.
+3. Publicar o disparador por último: `npm run deploy -- scheduler`.
+4. Conferir os cinco Service Bindings, o Cron `0 * * * *` do disparador e a ausência
+   de Cron no serviço de resumos e nos Workers de regras.
+
+Não adicionar agendas individuais às regras. Para rollback da agenda, remover
+primeiro o Cron do disparador, restaurar `0 * * * *` no serviço de resumos e
+republicar esse serviço. Isso evita exceder a cota e evita dois disparadores de resumos.
+As demais quatro agendas da conta não precisam ser modificadas.
+
 Para pausar uma regra, defina `ENABLED=false` e publique somente aquele Worker.
-Para remover sua agenda, use `triggers.crons=[]` na mesma configuração. A versão
+Para pausar o conjunto, defina `ENABLED=false` no disparador e publique-o.
+A versão
 inicial não possui rotas públicas: `workers_dev` e URLs de preview de produção
 estão desativados; o preview temporário do Wrangler é usado no desenvolvimento.
 
@@ -267,9 +310,9 @@ estão desativados; o preview temporário do Wrangler é usado no desenvolviment
   renovação, limites de datas, cancelamento e envios em análise.
 - Execução: simulação sem MongoDB, paginação, deduplicação, falhas parciais,
   garantia do índice e fechamento das conexões.
-- Runtime: os cinco bundles iniciam no workerd e aceitam eventos agendados
-  desabilitados sem precisar de credenciais.
-- CI: tipagem, testes, runtime e build dos cinco bundles a cada alteração.
+- Runtime: os cinco Workers de regras iniciam no workerd, recebem eventos e chamadas
+  RPC desabilitados sem credenciais; o disparador seleciona e chama os destinos corretos.
+- CI: tipagem, testes, runtime e build dos seis bundles a cada alteração.
 
 Os logs estruturados incluem `rule`, `runId`, duração, quantidade de candidatos,
 inserções, duplicatas e lotes. Falhas usam `execution_failed` e código sanitizado,
@@ -278,8 +321,15 @@ propagado ao runtime; não há promessa de retentativa automática. Consulte as
 execuções no painel e reexecute após corrigir a causa.
 
 O pipeline de gravação é coberto por testes com substitutos da collection; os
-testes padrão e a simulação não escrevem no MongoDB real. A primeira ativação de
-gravação deve conferir os índices e o consumo da API em ambiente de teste.
+testes padrão e a simulação não escrevem no MongoDB real. A validação operacional
+da migração usa uma collection temporária isolada para conferir índices e upserts
+concorrentes e a remove ao terminar, antes de disparar as regras de produção.
+
+Na validação operacional de **16/10/2026**, os cinco destinos responderam aos
+Service Bindings reais. A execução inicial criou três notificações automáticas;
+uma segunda execução conservou exatamente três, sem alterar os documentos legados.
+Os documentos novos usam ObjectId e BSON Date e o índice único parcial foi
+confirmado. A collection temporária de testes foi removida.
 
 ## Referências
 
