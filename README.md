@@ -142,13 +142,42 @@ Collection: `notificacoes`. Os campos já consumidos pela API são preservados:
 | --- | --- | --- |
 | `_id` | ObjectId | Gerado pelo driver; não usa contador numérico |
 | `id_usuario` | Número | Destinatário compatível com o modelo atual da API |
+| `titulo` | String | Título preenchido em todas as novas notificações |
 | `mensagem` | String | Texto exibido ao usuário |
 | `data_criacao` | Date | Instante de criação do aviso, armazenado em UTC |
+| `idevento` | Número, opcional | ID do evento nos avisos de prazo e de validação; ausente nos avisos de conformidade |
 | `workspace_id` | Número | Workspace validado na origem |
 | `tipo` | String | Identificador da regra |
 | `recurso` | Documento | Tipo e ID do recurso de origem |
 | `chave_deduplicacao` | String | Identidade estável do aviso |
 | `regra_versao` | Número | Versão da regra que criou o documento |
+
+Exemplo de uma nova notificação de prazo, em Extended JSON (campos de controle
+omitidos para facilitar a leitura):
+
+```json
+{
+  "_id": { "$oid": "6aa62bf0d6836e73d7a6d003" },
+  "id_usuario": 2,
+  "titulo": "Prazo de evento próximo do fim",
+  "mensagem": "Você tem uma participação pendente no evento “Treinamento”. O prazo termina em 2026-10-17 12:00:00 (horário de São Paulo).",
+  "data_criacao": { "$date": "2026-10-16T12:00:00.000Z" },
+  "idevento": 1
+}
+```
+
+`idevento` corresponde a `evento.id_evento`, convertido para número com validação
+de precisão, e não ao ID da turma, da participação ou da conclusão. Os avisos de
+conformidade omitem esse campo, sem gravar `null` ou um ID artificial.
+
+Os títulos usados são “Conformidade próxima do vencimento”, “Conformidade
+vencida”, “Prazo de evento próximo do fim” e “Conclusão aguardando avaliação”,
+conforme a regra. O nome do evento permanece na mensagem.
+
+A inclusão de `titulo` e `idevento` vale para notificações novas após a publicação
+desta versão. Não há migração automática dos documentos existentes: a API deve
+continuar aceitando notificações antigas sem esses campos. Os novos campos não
+alteram a chave de deduplicação nem provocam o reenvio de avisos anteriores.
 
 A chave combina versão, regra, workspace, destinatário, recurso, data de
 referência e faixa do aviso. Um índice único parcial protege essa chave,

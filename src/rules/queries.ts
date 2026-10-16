@@ -58,7 +58,8 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
       return {
         text: `SELECT tf.id_turma_funcionario::text AS cursor, un.workspace_id::text AS workspace_id,
           u.id_usuario::text AS usuario_id, tf.id_turma_funcionario::text AS recurso_id,
-          to_char(t.data_termino, 'YYYY-MM-DD HH24:MI:SS') AS referencia, e.titulo AS titulo_evento
+          to_char(t.data_termino, 'YYYY-MM-DD HH24:MI:SS') AS referencia, e.titulo AS titulo_evento,
+          e.id_evento::text AS evento_id
         FROM public.turma_funcionario tf ${participationJoins}
         LEFT JOIN public.conclusao_evento ce ON ce.turma_funcionario_id = tf.id_turma_funcionario
         WHERE tf.id_turma_funcionario > $1::bigint ${participationEligibility}
@@ -74,7 +75,8 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
       return {
         text: `SELECT ce.id_conclusao_evento::text AS cursor, un.workspace_id::text AS workspace_id,
           gestor.id_usuario::text AS usuario_id, ce.id_conclusao_evento::text AS recurso_id,
-          to_char(ce.data_conclusao, 'YYYY-MM-DD HH24:MI:SS') AS referencia, e.titulo AS titulo_evento
+          to_char(ce.data_conclusao, 'YYYY-MM-DD HH24:MI:SS') AS referencia, e.titulo AS titulo_evento,
+          e.id_evento::text AS evento_id
         FROM public.conclusao_evento ce
         JOIN public.turma_funcionario tf ON tf.id_turma_funcionario = ce.turma_funcionario_id
         ${participationJoins}
