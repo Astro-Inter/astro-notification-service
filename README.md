@@ -214,8 +214,10 @@ Os arquivos de credenciais são ignorados pelo Git e os valores não são impres
 npm run dev -- expiring-compliance
 ```
 
-O modo local gera uma configuração ignorada em `.wrangler/local`, remove o
-Hyperdrive de produção e usa `DATABASE_URL`. Conexões diretas remotas exigem TLS
+O comando `dev`, local ou remoto, gera uma configuração ignorada em `.wrangler/local`
+com execução desabilitada e simulação habilitada nas regras, mesmo com produção
+ativa. Variáveis explicitamente passadas pelo desenvolvedor podem sobrescrevê-la.
+O modo local remove o Hyperdrive de produção e usa `DATABASE_URL`. Conexões diretas remotas exigem TLS
 com certificado verificado; para o Aiven, forneça o CA em `PG_CA_CERT`.
 Conexões locais sem TLS precisam indicar `sslmode=disable` explicitamente.
 
@@ -322,6 +324,12 @@ O pipeline de gravação é coberto por testes com substitutos da collection; os
 testes padrão e a simulação não escrevem no MongoDB real. A validação operacional
 da migração usa uma collection temporária isolada para conferir índices e upserts
 concorrentes e a remove ao terminar, antes de disparar as regras de produção.
+
+Na validação operacional de **16/10/2026**, os cinco destinos responderam aos
+Service Bindings reais. A execução inicial criou três notificações automáticas;
+uma segunda execução conservou exatamente três, sem alterar os documentos legados.
+Os documentos novos usam ObjectId e BSON Date e o índice único parcial foi
+confirmado. A collection temporária de testes foi removida.
 
 ## Referências
 
