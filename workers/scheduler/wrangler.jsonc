@@ -1,0 +1,20 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "astro-shared-scheduler",
+  "account_id": "25eb8d3849be3adbff3678f4ec781804",
+  "main": "../../src/workers/scheduler.ts",
+  "compatibility_date": "2026-10-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["0 * * * *"] },
+  "vars": { "ENABLED": "true", "DAILY_HOUR_UTC": "11" },
+  "services": [
+    { "binding": "SUMMARY", "service": "astro-session-summary-service", "entrypoint": "ScheduledJob" },
+    { "binding": "CLASSES", "service": "astro-notification-class-deadlines", "entrypoint": "RuleJob" },
+    { "binding": "EXPIRING", "service": "astro-notification-expiring-compliance", "entrypoint": "RuleJob" },
+    { "binding": "EXPIRED", "service": "astro-notification-expired-compliance", "entrypoint": "RuleJob" },
+    { "binding": "VALIDATIONS", "service": "astro-notification-pending-validations", "entrypoint": "RuleJob" }
+  ]
+}

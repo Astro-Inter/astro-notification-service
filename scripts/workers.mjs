@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { workers } from "./worker-list.mjs";
+import { allWorkers as workers } from "./worker-list.mjs";
 
 const [action, selection, ...extra] = process.argv.slice(2);
 if (!["dev", "build", "deploy"].includes(action) ||

@@ -11,12 +11,22 @@ const configs = workers.map(rule => {
   delete config.account_id;
   delete config.$schema;
   config.main = resolve(`src/workers/${rule}.ts`);
+  config.vars = { ...config.vars, ENABLED: "false" };
   return { config, secrets: { DATABASE_URL: "", MONGODB_URI: "", MONGODB_DATABASE: "" } };
 });
+const scheduler = JSON.parse(readFileSync("workers/scheduler/wrangler.jsonc", "utf8"));
+delete scheduler.account_id;
+delete scheduler.$schema;
+scheduler.main = resolve("src/workers/scheduler.ts");
+scheduler.services = scheduler.services.map(binding => binding.binding === "SUMMARY"
+  ? { ...binding, service: "summary-fixture" } : binding);
+configs.push({ config: scheduler });
+configs.push({ config: { name: "summary-fixture", main: resolve("tests/runtime/summary-fixture.ts"),
+  compatibility_date: "2026-10-16" } });
 configs.push({ config: { name: "rpc-probe", main: resolve("tests/runtime/rpc-probe.ts"),
-  compatibility_date: "2026-10-15", services: workers.map((rule, i) => ({
+  compatibility_date: "2026-10-16", services: [...workers.map((rule, i) => ({
     binding: `JOB_${i}`, service: `astro-notification-${rule}`, entrypoint: "RuleJob",
-  })) } });
+  })), { binding: "SCHEDULER", service: "astro-shared-scheduler", entrypoint: "SchedulerControl" }] } });
 const server = createTestHarness({ workers: configs });
 before(async () => { await server.listen(); });
 after(async () => { await server.close(); });
@@ -42,3 +52,16 @@ for (const rule of workers) {
     assert.equal(forbidden.status, 404);
   });
 }
+
+test("disparador chama cinco serviços no horário diário e somente dois nas outras horas", async () => {
+  const probe = server.getWorker("rpc-probe");
+  const response = await probe.fetch(`https://example.com/SCHEDULER/run?time=${Date.parse("2026-10-16T11:00:00Z")}`);
+  const result = await response.json();
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.outcomes.map(outcome => outcome.job), ["SUMMARY", "CLASSES", "EXPIRING", "EXPIRED", "VALIDATIONS"]);
+  assert.ok(result.outcomes.every(outcome => outcome.status === "fulfilled" && outcome.jobStatus === "skipped"));
+  const hourly = await probe.fetch(`https://example.com/SCHEDULER/run?time=${Date.parse("2026-10-16T12:00:00Z")}`);
+  assert.equal((await hourly.json()).outcomes.length, 2);
+  const inspected = await probe.fetch("https://example.com/SCHEDULER/inspect");
+  assert.equal((await inspected.json()).length, 5);
+});
