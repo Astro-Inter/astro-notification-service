@@ -1,4 +1,5 @@
 import { booleanSetting, dateInSaoPaulo, positiveId, settingsFromEnv } from "./config";
+import { ServiceError } from "./errors";
 import { openNotificationStore } from "./mongo";
 import { notificationFor } from "./notifications";
 import { openCandidateSource } from "./postgres";
@@ -44,7 +45,7 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
       if (!rows.length) return { ...result, status: "completed" };
       result.batches++;
       for (const row of rows) {
-        if (positiveId(row.cursor) <= Number(after)) throw new Error("Paginação sem avanço");
+        if (positiveId(row.cursor) <= Number(after)) throw new ServiceError("PAGINATION_STALLED", "Paginação sem avanço");
         const notification = notificationFor(rule, row, context);
         result.candidates++;
         if (store) {
@@ -57,7 +58,7 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
     }
     // Não esconder truncamento: falhar permite alertar e ajustar capacidade.
     const remaining = await source.page(rule, context, after);
-    if (remaining.length) throw new Error("Limite de lotes atingido; aumente MAX_BATCHES ou reduza o escopo");
+    if (remaining.length) throw new ServiceError("BATCH_LIMIT_REACHED", "Limite de lotes atingido; aumente MAX_BATCHES ou reduza o escopo");
     return { ...result, status: "completed" };
   } finally {
     const closed = await Promise.allSettled([source?.close(), store?.close()]);

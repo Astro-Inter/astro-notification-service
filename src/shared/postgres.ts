@@ -24,8 +24,11 @@ export function postgresOptions(env: Env): ClientConfig {
 
 export async function openCandidateSource(env: Env): Promise<CandidateSource> {
   const client = new Client(postgresOptions(env));
+  let closing = false;
   // Não registrar mensagens do driver: podem incluir host, usuário ou SQL.
-  client.on("error", () => console.error(JSON.stringify({ event: "postgres_connection_error" })));
+  client.on("error", () => {
+    if (!closing) console.error(JSON.stringify({ event: "postgres_connection_error" }));
+  });
   try {
     await client.connect();
     return {
@@ -41,9 +44,10 @@ export async function openCandidateSource(env: Env): Promise<CandidateSource> {
           throw error;
         }
       },
-      close: () => client.end(),
+      async close() { closing = true; await client.end(); },
     };
   } catch (error) {
+    closing = true;
     await client.end().catch(() => {});
     throw error;
   }
