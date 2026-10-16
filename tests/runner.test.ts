@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runRule, type Dependencies } from "../src/shared/runner";
 import type { Candidate, Env } from "../src/shared/types";
 
-const env: Env = { ENABLED: "true", DRY_RUN: "false", WORKSPACE_IDS: "1", BATCH_SIZE: "1", MAX_BATCHES: "2" };
+const env: Env = { ENABLED: "true", DRY_RUN: "false", BATCH_SIZE: "1", MAX_BATCHES: "2" };
 const row: Candidate = { cursor: "1", workspace_id: "1", usuario_id: "2", recurso_id: "1", referencia: "2026-10-14", nr_id: 10 };
 function setup(pages: Candidate[][]) {
   const source = { page: vi.fn(), close: vi.fn().mockResolvedValue(undefined) };

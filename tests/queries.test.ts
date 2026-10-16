@@ -8,7 +8,7 @@ import type { Candidate, RuleContext, RuleId } from "../src/shared/types";
 
 let db: PGlite;
 const context: RuleContext = { now: new Date("2026-10-15T15:00:00Z"), today: "2026-10-15",
-  settings: settingsFromEnv({ WORKSPACE_IDS: "1", BATCH_SIZE: "2" }) };
+  settings: settingsFromEnv({ BATCH_SIZE: "2" }) };
 async function candidates(rule: RuleId, after = "0", ctx = context) {
   const query = candidateQuery(rule, ctx, after);
   return (await db.query<Candidate>(query.text, query.values)).rows;
@@ -41,12 +41,12 @@ describe("consultas executadas em PostgreSQL (PGlite)", () => {
     expect(await candidates("expired-compliance")).toEqual([]);
     expect(await candidates("expiring-compliance")).toEqual([]);
   });
-  it("respeita aplicabilidade, revogação, status, cargo, unidade e workspace", async () => {
+  it("analisa todos os workspaces preservando aplicabilidade e consistência dos vínculos", async () => {
     await db.exec(`INSERT INTO conformidade VALUES
       (1,2,10,true,'2026-10-14'),(2,2,20,true,'2026-10-14'),(3,2,30,false,'2026-10-14'),
       (4,2,40,true,NULL),(5,4,10,true,'2026-10-14'),(6,6,10,true,'2026-10-14'),
       (7,7,10,true,'2026-10-14'),(8,8,10,true,'2026-10-14'),(9,9,10,true,'2026-10-14');`);
-    expect((await candidates("expired-compliance")).map(row => row.cursor)).toEqual(["1"]);
+    expect((await candidates("expired-compliance")).map(row => [row.cursor, row.workspace_id])).toEqual([["1", "1"], ["5", "2"]]);
   });
   it("trata hoje como válido, inclui o limite de 30 dias e pagina por id", async () => {
     await db.exec(`INSERT INTO conformidade VALUES

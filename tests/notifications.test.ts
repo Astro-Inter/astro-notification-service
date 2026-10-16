@@ -4,7 +4,7 @@ import { notificationFor } from "../src/shared/notifications";
 import type { Candidate, RuleContext } from "../src/shared/types";
 
 const context: RuleContext = { now: new Date("2026-10-15T12:00:00Z"), today: "2026-10-15",
-  settings: settingsFromEnv({ WORKSPACE_IDS: "1" }) };
+  settings: settingsFromEnv({}) };
 const row: Candidate = { cursor: "10", workspace_id: "1", usuario_id: "2", recurso_id: "10",
   referencia: "2026-10-22", nr_id: 10, dias_restantes: 7 };
 
@@ -25,8 +25,11 @@ describe("contrato e identidade das notificações", () => {
     const renewed = notificationFor("expiring-compliance", { ...row, referencia: "2027-10-22" }, context);
     expect(new Set([at30, at7, expired, renewed].map(n => n.chave_deduplicacao)).size).toBe(4);
   });
-  it("recusa destinatários fora do escopo e a regra ainda sem aplicabilidade", () => {
-    expect(() => notificationFor("expired-compliance", { ...row, workspace_id: "3" }, context)).toThrow("escopo");
+  it("distingue workspaces na chave e recusa a regra ainda sem aplicabilidade", () => {
+    const first = notificationFor("expired-compliance", row, context);
+    const other = notificationFor("expired-compliance", { ...row, workspace_id: "3" }, context);
+    expect(other.workspace_id).toBe(3);
+    expect(other.chave_deduplicacao).not.toBe(first.chave_deduplicacao);
     expect(() => notificationFor("missing-compliance", row, context)).toThrow("Aplicabilidade");
   });
 });

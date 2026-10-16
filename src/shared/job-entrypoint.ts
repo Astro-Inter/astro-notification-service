@@ -11,6 +11,6 @@ export abstract class NotificationJob extends WorkerEntrypoint<Env> {
   async status() {
     return { service: "astro-notification-service", rule: this.rule,
       enabled: this.env.ENABLED === "true", dryRun: this.env.DRY_RUN !== "false",
-      workspaceConfigured: Boolean(this.env.WORKSPACE_IDS?.trim()) };
+      scope: "all_workspaces" };
   }
 }

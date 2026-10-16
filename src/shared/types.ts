@@ -11,7 +11,6 @@ export type RuleId = typeof ruleIds[number];
 export interface Env {
   ENABLED?: string;
   DRY_RUN?: string;
-  WORKSPACE_IDS?: string;
   DATABASE_URL?: string;
   HYPERDRIVE?: Hyperdrive;
   MONGODB_URI?: string;
@@ -26,7 +25,6 @@ export interface Env {
 
 export interface Settings {
   dryRun: boolean;
-  workspaceIds: number[];
   expiryWarningDays: number[];
   classWarningHours: number;
   validationWaitHours: number;

@@ -12,14 +12,13 @@ const compliance = `WITH selecionadas AS (
 SELECT cf.id_conformidade::text AS cursor, un.workspace_id::text AS workspace_id,
   u.id_usuario::text AS usuario_id, cf.id_conformidade::text AS recurso_id,
   to_char(cf.data_validade, 'YYYY-MM-DD') AS referencia, cf.nr_id,
-  (cf.data_validade - $3::date) AS dias_restantes
+  (cf.data_validade - $2::date) AS dias_restantes
 FROM selecionadas cf
 JOIN public.usuario u ON u.id_usuario = cf.usuario_id
 JOIN public.unidade un ON un.id_unidade = u.unidade_id
 JOIN public.cargo c ON c.id_cargo = u.cargo_id AND c.workspace_id = un.workspace_id
 JOIN public.nr_catalogo nr ON nr.codigo_nr = cf.nr_id
 WHERE cf.id_conformidade > $1::bigint
-  AND un.workspace_id = ANY($2::bigint[])
   AND u.tipo = 'COLABORADOR' AND u.status = 'ATIVO'
   AND un.ativo IS TRUE AND c.ativo IS TRUE
   AND cf.aplicavel IS TRUE AND nr.revogada IS FALSE
@@ -37,7 +36,7 @@ JOIN public.cargo cargo_gestor ON cargo_gestor.id_cargo = gestor.cargo_id
   AND cargo_gestor.workspace_id = un_gestor.workspace_id`;
 
 const participationEligibility = `
-  AND un.workspace_id = ANY($2::bigint[]) AND un_gestor.workspace_id = un.workspace_id
+  AND un_gestor.workspace_id = un.workspace_id
   AND u.tipo IN ('COLABORADOR', 'GESTOR') AND u.status = 'ATIVO'
   AND gestor.tipo IN ('GESTOR', 'GESTOR_WORKSPACE') AND gestor.status = 'ATIVO'
   AND un.ativo IS TRUE AND c.ativo IS TRUE
@@ -48,13 +47,13 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
   switch (rule) {
     case "expiring-compliance":
       return { text: `${compliance}
-        AND cf.data_validade >= $3::date AND cf.data_validade <= $3::date + $4::integer
-        ORDER BY cf.id_conformidade LIMIT $5::integer`,
-        values: [after, settings.workspaceIds, context.today, Math.max(...settings.expiryWarningDays), settings.batchSize] };
-    case "expired-compliance":
-      return { text: `${compliance} AND cf.data_validade < $3::date
+        AND cf.data_validade >= $2::date AND cf.data_validade <= $2::date + $3::integer
         ORDER BY cf.id_conformidade LIMIT $4::integer`,
-        values: [after, settings.workspaceIds, context.today, settings.batchSize] };
+        values: [after, context.today, Math.max(...settings.expiryWarningDays), settings.batchSize] };
+    case "expired-compliance":
+      return { text: `${compliance} AND cf.data_validade < $2::date
+        ORDER BY cf.id_conformidade LIMIT $3::integer`,
+        values: [after, context.today, settings.batchSize] };
     case "class-deadlines":
       return {
         text: `SELECT tf.id_turma_funcionario::text AS cursor, un.workspace_id::text AS workspace_id,
@@ -64,12 +63,12 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
         LEFT JOIN public.conclusao_evento ce ON ce.turma_funcionario_id = tf.id_turma_funcionario
         WHERE tf.id_turma_funcionario > $1::bigint ${participationEligibility}
           AND e.status = 'ATIVO'
-          AND t.data_termino >= ($3::timestamptz AT TIME ZONE 'America/Sao_Paulo')
-          AND t.data_termino <= ($3::timestamptz AT TIME ZONE 'America/Sao_Paulo') + ($4::integer * interval '1 hour')
+          AND t.data_termino >= ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo')
+          AND t.data_termino <= ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo') + ($3::integer * interval '1 hour')
           AND (ce.id_conclusao_evento IS NULL OR ce.status = 'REJEITADO'
             OR (ce.status = 'PENDENTE' AND ce.data_conclusao IS NULL))
-        ORDER BY tf.id_turma_funcionario LIMIT $5::integer`,
-        values: [after, settings.workspaceIds, context.now.toISOString(), settings.classWarningHours, settings.batchSize],
+        ORDER BY tf.id_turma_funcionario LIMIT $4::integer`,
+        values: [after, context.now.toISOString(), settings.classWarningHours, settings.batchSize],
       };
     case "pending-validations":
       return {
@@ -82,9 +81,9 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
         WHERE ce.id_conclusao_evento > $1::bigint ${participationEligibility}
           AND e.status <> 'CANCELADO'
           AND ce.status = 'PENDENTE' AND ce.data_conclusao IS NOT NULL AND ce.data_validacao IS NULL
-          AND ce.data_conclusao <= ($3::timestamptz AT TIME ZONE 'America/Sao_Paulo') - ($4::integer * interval '1 hour')
-        ORDER BY ce.id_conclusao_evento LIMIT $5::integer`,
-        values: [after, settings.workspaceIds, context.now.toISOString(), settings.validationWaitHours, settings.batchSize],
+          AND ce.data_conclusao <= ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo') - ($3::integer * interval '1 hour')
+        ORDER BY ce.id_conclusao_evento LIMIT $4::integer`,
+        values: [after, context.now.toISOString(), settings.validationWaitHours, settings.batchSize],
       };
     case "missing-compliance":
       throw new Error("Aplicabilidade de obrigações sem registro ainda não definida");

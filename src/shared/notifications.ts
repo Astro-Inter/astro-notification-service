@@ -36,7 +36,6 @@ export function notificationFor(rule: RuleId, row: Candidate, context: RuleConte
   }
   const userId = positiveId(row.usuario_id);
   const workspaceId = positiveId(row.workspace_id);
-  if (!context.settings.workspaceIds.includes(workspaceId)) throw new Error("Destinatário fora do escopo configurado");
   positiveId(row.recurso_id);
   return {
     id_usuario: userId, mensagem: message, data_criacao: context.now,

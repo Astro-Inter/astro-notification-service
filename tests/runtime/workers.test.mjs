@@ -35,7 +35,7 @@ for (const rule of workers) {
     const probe = server.getWorker("rpc-probe");
     const status = await probe.fetch(`https://example.com/${binding}/status`);
     assert.deepEqual(await status.json(), { service: "astro-notification-service", rule,
-      enabled: false, dryRun: true, workspaceConfigured: false });
+      enabled: false, dryRun: true, scope: "all_workspaces" });
     const run = await probe.fetch(`https://example.com/${binding}/run`);
     assert.equal((await run.json()).reason, rule === "missing-compliance" ? "applicability_pending" : "disabled");
     const forbidden = await server.getWorker(`astro-notification-${rule}`).fetch("https://example.com/run", { method: "POST" });
