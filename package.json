@@ -10,6 +10,7 @@
     "check": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "node node_modules/vitest/vitest.mjs run",
     "test:runtime": "node --test tests/runtime/workers.test.mjs",
+    "test:mongo": "node scripts/test-mongo.mjs",
     "dev": "node scripts/workers.mjs dev",
     "build": "node scripts/workers.mjs build",
     "deploy": "node scripts/workers.mjs deploy",
