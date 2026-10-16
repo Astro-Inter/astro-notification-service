@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "astro-notification-class-deadlines",
+  "main": "../../src/workers/class-deadlines.ts",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["10 * * * *"] },
+  "vars": { "ENABLED": "false", "DRY_RUN": "true", "WORKSPACE_IDS": "", "CLASS_WARNING_HOURS": "24" }
+}

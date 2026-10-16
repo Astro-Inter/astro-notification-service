@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "astro-notification-expired-compliance",
+  "main": "../../src/workers/expired-compliance.ts",
+  "compatibility_date": "2026-10-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["5 11 * * *"] },
+  "vars": { "ENABLED": "false", "DRY_RUN": "true", "WORKSPACE_IDS": "" }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "astro-notification-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node node_modules/typescript/bin/tsc --noEmit",
+    "test": "node node_modules/vitest/vitest.mjs run",
+    "dev": "node scripts/workers.mjs dev",
+    "build": "node scripts/workers.mjs build",
+    "deploy": "node scripts/workers.mjs deploy"
+  },
+  "dependencies": {
+    "mongodb": "^7.7.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261016.1",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.0"
+  }
+}
