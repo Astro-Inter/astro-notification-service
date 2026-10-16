@@ -58,7 +58,7 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
     }
     // Não esconder truncamento: falhar permite alertar e ajustar capacidade.
     const remaining = await source.page(rule, context, after);
-    if (remaining.length) throw new ServiceError("BATCH_LIMIT_REACHED", "Limite de lotes atingido; aumente MAX_BATCHES ou reduza o escopo");
+    if (remaining.length) throw new ServiceError("BATCH_LIMIT_REACHED", "Limite de lotes atingido; ajuste a capacidade da execução");
     return { ...result, status: "completed" };
   } finally {
     const closed = await Promise.allSettled([source?.close(), store?.close()]);
