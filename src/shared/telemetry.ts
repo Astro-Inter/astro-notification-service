@@ -60,7 +60,7 @@ async function flush(env: GrafanaEnv, service: string, records: RecordEntry[]): 
       severityNumber: record.level === "error" ? 17 : 9, severityText: record.level === "error" ? "ERROR" : "INFO",
       body: { stringValue: JSON.stringify(record.fields) },
     })) }] }] };
-    response = await fetch(endpoint, { method: "POST", redirect: "error", signal: AbortSignal.timeout(5000),
+    response = await fetch(endpoint, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(5000),
       headers: grafanaHeaders(env.GRAFANA_OTLP_HEADERS), body: JSON.stringify(body) });
     if (!response.ok) {
       console.warn(JSON.stringify({ event: "telemetry_export_failed", service, httpStatus: response.status }));

@@ -20,7 +20,7 @@ describe("logs OTLP para Grafana", () => {
     });
     const [url, options] = fetcher.mock.calls[0]!;
     expect(url).toBe("https://collector.grafana.net/otlp/v1/logs");
-    expect(options.redirect).toBe("error");
+    expect(options.redirect).toBe("manual");
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(options.headers.get("authorization")).toBe("Basic fixture=");
     expect(options.headers.get("content-type")).toBe("application/json");
