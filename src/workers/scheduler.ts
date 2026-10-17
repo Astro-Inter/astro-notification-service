@@ -1,15 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { bindings, dispatchDue, type SchedulerEnv } from "../scheduler/dispatch";
-
-async function execute(env: SchedulerEnv, time: Date) {
-  const runId = crypto.randomUUID();
-  const started = Date.now();
-  const result = await dispatchDue(env, time);
-  console.log(JSON.stringify({ event: "scheduler_finished", runId, scheduledTime: time.toISOString(),
-    durationMs: Date.now() - started, ...result }));
-  if (result.status === "failed") throw new Error(`Falha em tarefas do disparador; consulte o runId ${runId}`);
-  return result;
-}
+import { bindings, type SchedulerEnv } from "../scheduler/dispatch";
+import { executeScheduler } from "../scheduler/execution";
 
 // Controle interno para diagnóstico e reexecução; não possui rota HTTP pública.
 export class SchedulerControl extends WorkerEntrypoint<SchedulerEnv> {
@@ -24,11 +15,11 @@ export class SchedulerControl extends WorkerEntrypoint<SchedulerEnv> {
       ? result.value : { job: bindings[index]!, state: { status: "unavailable" } });
   }
 
-  async run(scheduledTime: number) { return execute(this.env, new Date(scheduledTime)); }
+  async run(scheduledTime: number) { return executeScheduler(this.env, new Date(scheduledTime)); }
 }
 
 export default {
-  async scheduled(controller, env) { await execute(env, new Date(controller.scheduledTime)); },
+  async scheduled(controller, env) { await executeScheduler(env, new Date(controller.scheduledTime)); },
   fetch(request) {
     if (request.method === "GET" && new URL(request.url).pathname === "/health") {
       return Response.json({ service: "astro-shared-scheduler", status: "ok" });

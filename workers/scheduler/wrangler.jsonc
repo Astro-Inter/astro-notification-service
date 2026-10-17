@@ -9,7 +9,7 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "triggers": { "crons": ["0 * * * *"] },
-  "vars": { "ENABLED": "true", "DAILY_HOUR_UTC": "11" },
+  "vars": { "APP_ENV": "production", "ENABLED": "true", "DAILY_HOUR_UTC": "11" },
   "services": [
     { "binding": "SUMMARY", "service": "astro-session-summary-service", "entrypoint": "ScheduledJob" },
     { "binding": "CLASSES", "service": "astro-notification-class-deadlines", "entrypoint": "RuleJob" },

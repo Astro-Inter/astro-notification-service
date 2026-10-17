@@ -1,12 +1,13 @@
 import { booleanSetting } from "../shared/config";
 import { safeErrorCode } from "../shared/errors";
+import type { GrafanaEnv } from "../shared/telemetry";
 
 export interface JobBinding {
   run(): Promise<unknown>;
   status(): Promise<unknown>;
 }
 
-export interface SchedulerEnv {
+export interface SchedulerEnv extends GrafanaEnv {
   ENABLED?: string;
   DAILY_HOUR_UTC?: string;
   SUMMARY: JobBinding;

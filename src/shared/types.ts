@@ -1,3 +1,5 @@
+import type { GrafanaEnv } from "./telemetry";
+
 export const ruleIds = [
   "expiring-compliance",
   "expired-compliance",
@@ -8,7 +10,7 @@ export const ruleIds = [
 
 export type RuleId = typeof ruleIds[number];
 
-export interface Env {
+export interface Env extends GrafanaEnv {
   ENABLED?: string;
   DRY_RUN?: string;
   DATABASE_URL?: string;

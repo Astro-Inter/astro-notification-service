@@ -16,6 +16,7 @@
     "deploy": "node scripts/workers.mjs deploy",
     "credentials:import": "node scripts/import-credentials.mjs",
     "secrets:upload": "node scripts/secrets.mjs",
+    "secrets:grafana": "node scripts/grafana-secrets.mjs",
     "connections:check": "node scripts/check-connections.mjs"
   },
   "dependencies": {

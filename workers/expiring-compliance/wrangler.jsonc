@@ -10,5 +10,5 @@
   "observability": { "enabled": true },
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "c561f75615114c0b9358bc5c35159b7d" }],
   "triggers": { "crons": [] },
-  "vars": { "ENABLED": "true", "DRY_RUN": "false", "EXPIRY_WARNING_DAYS": "30,7" }
+  "vars": { "APP_ENV": "production", "ENABLED": "true", "DRY_RUN": "false", "EXPIRY_WARNING_DAYS": "30,7" }
 }

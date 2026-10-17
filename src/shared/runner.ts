@@ -2,6 +2,7 @@ import { booleanSetting, dateInSaoPaulo, positiveId, settingsFromEnv } from "./c
 import { ServiceError } from "./errors";
 import { openNotificationStore } from "./mongo";
 import { notificationFor } from "./notifications";
+import { logEvent } from "./telemetry";
 import { openCandidateSource } from "./postgres";
 import type { CandidateSource, Env, NotificationStore, RuleContext, RuleId } from "./types";
 
@@ -63,7 +64,7 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
   } finally {
     const closed = await Promise.allSettled([source?.close(), store?.close()]);
     if (closed.some(item => item.status === "rejected")) {
-      console.error(JSON.stringify({ event: "connection_close_failed", rule }));
+      logEvent("error", { event: "connection_close_failed", rule });
     }
   }
 }

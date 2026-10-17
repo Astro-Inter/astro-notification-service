@@ -1,5 +1,6 @@
 import { Client, type ClientConfig } from "pg";
 import { candidateQuery } from "../rules/queries";
+import { logEvent } from "./telemetry";
 import type { Candidate, CandidateSource, Env } from "./types";
 
 export function postgresOptions(env: Env): ClientConfig {
@@ -27,7 +28,7 @@ export async function openCandidateSource(env: Env): Promise<CandidateSource> {
   let closing = false;
   // Não registrar mensagens do driver: podem incluir host, usuário ou SQL.
   client.on("error", () => {
-    if (!closing) console.error(JSON.stringify({ event: "postgres_connection_error" }));
+    if (!closing) logEvent("error", { event: "postgres_connection_error" });
   });
   try {
     await client.connect();
