@@ -302,6 +302,9 @@ o schema do PostgreSQL e executa `ping` no MongoDB; não modifica registros.
 | `MONGODB_URI` | Secret | Conexão com o MongoDB |
 | `MONGODB_DATABASE` | Secret | Nome do banco que contém `notificacoes` |
 | `DAILY_HOUR_UTC` | `11` no disparador | Hora UTC das três análises diárias, de 0 a 23 |
+| `APP_ENV` | `production` no Cloudflare; `development` em dev | Ambiente registrado nos logs OTLP |
+| `GRAFANA_OTLP_ENDPOINT` | Secret opcional | Base HTTPS do Grafana terminada em `/otlp`, ou URL completa `/otlp/v1/logs` |
+| `GRAFANA_OTLP_HEADERS` | Secret opcional | Headers de autenticação OTLP; valores com percent encoding são decodificados |
 
 As antecedências de 30/7 dias e os intervalos de 24/48 horas são valores iniciais
 configuráveis, sujeitos à validação do produto. Alterar uma faixa muda a identidade
@@ -374,6 +377,65 @@ sem registrar URI, senha, destinatário ou texto da notificação. O erro é
 propagado ao runtime; não há promessa de retentativa automática. Consulte as
 execuções no painel e reexecute após corrigir a causa.
 
+### Logs no Grafana Cloud
+
+As cinco regras e o disparador enviam seus logs operacionais por OTLP/HTTP JSON.
+Cada execução guarda um lote isolado em `AsyncLocalStorage` e aguarda o envio no
+fim, tanto em sucesso quanto em falha. O mesmo mecanismo cobre Cron, RPC e preview.
+Os contextos de execuções concorrentes não compartilham registros. As rotas HTTP
+de saúde não geram um log de execução e os logs internos da plataforma Cloudflare
+continuam disponíveis somente na observabilidade nativa.
+
+O recurso OTLP identifica `service.name` pelo nome do Worker, `service.namespace`
+como `astro` e `deployment.environment.name` por `APP_ENV`. O corpo é JSON com
+evento, regra, `runId`, duração, contagens, resultado e código sanitizado. O
+disparador inclui o horário agendado e o resultado de cada destino. Problemas de
+conexão PostgreSQL e de fechamento dos bancos entram no contexto da execução.
+Não são enviados dados dos destinatários, mensagens das notificações, consultas,
+URIs dos bancos, credenciais ou objetos de exceção.
+
+Para configurar, preencha os dois campos `GRAFANA_OTLP_*` no `.env` ignorado e
+envie somente esses secrets aos seis Workers:
+
+```sh
+npm run secrets:grafana
+# Também aceita um único destino:
+npm run secrets:grafana -- scheduler
+npm run deploy
+```
+
+O script usa a entrada padrão do Wrangler e não imprime os valores. Ele não envia
+credenciais de banco ao disparador. `secrets:upload` continua tratando somente os
+secrets MongoDB das cinco regras. A base `/otlp` recebe o sufixo `/v1/logs`;
+o sufixo não é repetido quando a URL já está completa. A autenticação aceita o
+formato `Authorization=Basic%20<credencial-base64>`. Não há credenciais nos
+arquivos Wrangler ou no Git.
+
+No Grafana, selecione a fonte Loki em **Explore**, escolha o intervalo recente e use:
+
+```logql
+{service_name=~"astro-notification-.*|astro-shared-scheduler"} | json
+```
+
+Para investigar uma falha, acrescente `| event="execution_failed"`; para uma
+execução específica, filtre por `runId` após o parser JSON. O disparador registra
+`scheduler_finished` com `status="failed"` quando algum destino falha, ou
+`scheduler_failed` se a própria execução não consegue ser iniciada corretamente.
+
+O envio mantém os últimos 32 registros por execução, usa timeout de cinco segundos
+e não segue redirects. Há um POST por execução com registros e configuração
+completa. Sem configuração, o serviço mantém apenas o console do Cloudflare.
+Uma falha de exportação não altera as notificações nem substitui o erro original.
+Este envio não possui fila durável nem retentativa persistente; uma indisponibilidade
+do Grafana pode causar perda do lote externo, preservando os logs no Cloudflare.
+
+O console informa `telemetry_export_succeeded` quando o gateway aceita o lote,
+`telemetry_export_failed` para status HTTP de erro, `telemetry_export_partial`
+para rejeição parcial OTLP e `telemetry_unavailable` para timeout ou configuração
+inválida. Esses diagnósticos não exportam respostas nem headers do provedor e não
+geram recursão de telemetria. Essa validação confirma a ingestão; uma resposta de
+aceite não equivale a uma consulta de leitura no painel do Grafana.
+
 O pipeline de gravação é coberto por testes com substitutos das collections; os
 testes padrão e a simulação não escrevem no MongoDB real. Para executar os cinco
 testes de integração explicitamente, configure as credenciais no `.env` e rode:
@@ -406,3 +468,5 @@ e controle separado; isso não significa que essa correção já foi publicada.
 - [Limites do Cloudflare Workers](https://developers.cloudflare.com/workers/platform/limits/).
 - [Cache de consultas no Hyperdrive](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/).
 - [Certificados TLS do Aiven](https://aiven.io/docs/platform/concepts/tls-ssl-certificates).
+- [Endpoint OTLP do Grafana Cloud](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/).
+- [Protocolo OTLP e rejeições parciais](https://opentelemetry.io/docs/specs/otlp/).

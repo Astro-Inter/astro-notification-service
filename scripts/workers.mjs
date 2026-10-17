@@ -21,7 +21,7 @@ for (const worker of selection ? [selection] : workers) {
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     if (!extra.includes("--remote")) delete config.hyperdrive;
     delete config.$schema;
-    config.vars = { ...config.vars, ENABLED: "false", ...(worker !== "scheduler" ? { DRY_RUN: "true" } : {}) };
+    config.vars = { ...config.vars, ENABLED: "false", APP_ENV: "development", ...(worker !== "scheduler" ? { DRY_RUN: "true" } : {}) };
     config.main = resolve(`src/workers/${worker}.ts`);
     configPath = `.wrangler/local/${worker}.json`;
     mkdirSync(".wrangler/local", { recursive: true });
