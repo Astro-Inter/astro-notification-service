@@ -2,14 +2,15 @@ import { randomUUID } from "node:crypto";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { collectionStore } from "../../src/shared/mongo";
+import { notificationId } from "../../src/shared/notification-id";
 import type { NotificationIntent, NotificationStore } from "../../src/shared/types";
 
 // Só executa mediante opção explícita. Nunca escreve nas coleções de negócio.
-describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB real, em coleções temporárias", () => {
+describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB real, em coleção temporária", () => {
   let client: MongoClient;
   let db: Db;
   let store: NotificationStore;
-  let names: { notifications: string; deliveries: string; counters: string };
+  let name: string;
   const intent: NotificationIntent = { deduplicationKey: "event-1", document: {
     id_usuario: 2, mensagem: "Conclua o treinamento pendente.",
     data_criacao: new Date("2026-06-25T12:19:40.233Z"), id_evento: 1, titulo: "Treinamento pendente",
@@ -24,72 +25,74 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
   }, 20000);
 
   beforeEach(async () => {
-    const prefix = `__astro_contract_${randomUUID().replaceAll("-", "")}`;
-    names = { notifications: `${prefix}_notifications`, deliveries: `${prefix}_deliveries`, counters: `${prefix}_counters` };
-    store = collectionStore(db, client, async () => {}, names);
+    name = `__astro_contract_${randomUUID().replaceAll("-", "")}`;
+    store = collectionStore(db, async () => {}, name);
     await store.ensureIndexes();
   }, 20000);
 
   afterEach(async () => {
-    if (!names || !db) return;
-    for (const name of Object.values(names)) {
-      if (!/^__astro_contract_[a-f0-9]{32}_(notifications|deliveries|counters)$/.test(name)) {
-        throw new Error("Nome de coleção temporária inválido");
-      }
-      await db.collection(name).drop().catch(error => { if (error.code !== 26) throw error; });
-    }
+    if (!name || !db) return;
+    if (!/^__astro_contract_[a-f0-9]{32}$/.test(name)) throw new Error("Nome de coleção temporária inválido");
+    await db.collection(name).drop().catch(error => { if (error.code !== 26) throw error; });
   }, 20000);
   afterAll(async () => { await client?.close(); });
 
   it("persiste somente os campos solicitados, com e sem evento, e conserva a data nas reexecuções", async () => {
     expect(await store.insertOnce(intent)).toBe(true);
     expect(await store.insertOnce({ ...intent, document: { ...intent.document, titulo: "Não deve substituir" } })).toBe(false);
-    const withEvent = await db.collection(names.notifications).findOne({});
-    expect(withEvent).toEqual({ _id: 1, ...intent.document });
+    expect(await db.collection(name).findOne({})).toEqual({ _id: await notificationId("event-1"), ...intent.document });
     const { id_evento: _, ...document } = intent.document;
     expect(await store.insertOnce({ deduplicationKey: "compliance-1", document })).toBe(true);
-    const withoutEvent = await db.collection(names.notifications).findOne({ titulo: document.titulo, id_evento: { $exists: false } });
-    expect(withoutEvent).toEqual({ _id: 2, ...document });
+    expect(await db.collection(name).findOne({ id_evento: { $exists: false } }))
+      .toEqual({ _id: await notificationId("compliance-1"), ...document });
   }, 30000);
 
-  it("deduplica a mesma chave concorrente e aloca IDs distintos para chaves diferentes", async () => {
+  it("deduplica gravações concorrentes e separa etapas mesmo com mensagens iguais", async () => {
     const same = await Promise.all(Array.from({ length: 6 }, () => store.insertOnce(intent)));
     expect(same.filter(Boolean)).toHaveLength(1);
-    const distinct = await Promise.all(Array.from({ length: 6 }, (_, i) => store.insertOnce({ ...intent, deduplicationKey: `other-${i}` })));
+    const distinct = await Promise.all(Array.from({ length: 6 }, (_, i) => store.insertOnce({ ...intent, deduplicationKey: `stage-${i}` })));
     expect(distinct.every(Boolean)).toBe(true);
-    const rows = await db.collection(names.notifications).find().toArray();
+    const rows = await db.collection(name).find().toArray();
     expect(rows).toHaveLength(7);
     expect(new Set(rows.map(row => row._id)).size).toBe(7);
     expect(rows.every(row => Number.isSafeInteger(row._id))).toBe(true);
+    const collections = await db.listCollections({ name: { $regex: `^${name}` } }).toArray();
+    expect(collections.map(row => row.name)).toEqual([name]);
   }, 60000);
 
-  it("reconhece as chaves antigas e inicializa acima de IDs numéricos existentes", async () => {
-    const notifications = db.collection<{ _id: number | ObjectId; chave_deduplicacao?: string }>(names.notifications);
+  it("preserva documentos com chave antiga ou ID sequencial e reconhece ambos", async () => {
+    const notifications = db.collection<{ _id: number | ObjectId; chave_deduplicacao?: string } & Record<string, unknown>>(name);
     const oldId = new ObjectId();
-    await notifications.insertMany([{ _id: 100 }, { _id: oldId, chave_deduplicacao: "old-key" }]);
-    await Promise.all([store.ensureIndexes(), store.ensureIndexes()]);
+    const old = { _id: oldId, chave_deduplicacao: "old-key" };
+    const sequential = { _id: 42, ...intent.document };
+    await notifications.insertMany([sequential, old]);
     expect(await store.insertOnce({ ...intent, deduplicationKey: "old-key" })).toBe(false);
-    expect(await store.insertOnce(intent)).toBe(true);
-    expect(await notifications.findOne({ _id: 101 })).not.toBeNull();
-    expect(await notifications.findOne({ _id: oldId })).toEqual({ _id: oldId, chave_deduplicacao: "old-key" });
+    expect(await store.insertOnce(intent)).toBe(false);
+    expect(await notifications.findOne({ _id: 42 })).toEqual(sequential);
+    expect(await notifications.findOne({ _id: oldId })).toEqual(old);
+    expect(await notifications.countDocuments()).toBe(2);
   }, 30000);
 
-  it("reverte contador e controle se a gravação falha e permite repetir a mesma chave", async () => {
-    await db.collection(names.notifications).createIndex({ mensagem: 1 }, { unique: true });
+  it("permite repetir após falha de escrita sem deixar reservas ou controles", async () => {
+    await db.collection(name).createIndex({ mensagem: 1 }, { unique: true });
     expect(await store.insertOnce(intent)).toBe(true);
     const second = { ...intent, deduplicationKey: "retry-key" };
     await expect(store.insertOnce(second)).rejects.toMatchObject({ code: 11000 });
-    expect(await db.collection<{ _id: string }>(names.deliveries).findOne({ _id: "retry-key" })).toBeNull();
-    expect(await db.collection(names.notifications).countDocuments()).toBe(1);
+    expect(await db.collection(name).countDocuments()).toBe(1);
     expect(await store.insertOnce({ ...second, document: { ...second.document, mensagem: "Outra mensagem" } })).toBe(true);
-    expect((await db.collection(names.notifications).findOne({ mensagem: "Outra mensagem" }))?._id).toBe(2);
+    expect((await db.collection(name).findOne({ mensagem: "Outra mensagem" }))?._id).toBe(await notificationId("retry-key"));
   }, 30000);
 
-  it("não grava nada quando o contador atinge o limite de precisão", async () => {
-    await db.collection<{ _id: string; value: number }>(names.counters)
-      .updateOne({ _id: names.notifications }, { $set: { value: Number.MAX_SAFE_INTEGER } });
-    await expect(store.insertOnce(intent)).rejects.toThrow("Contador");
-    expect(await db.collection(names.deliveries).countDocuments()).toBe(0);
-    expect(await db.collection(names.notifications).countDocuments()).toBe(0);
+  it("recusa colisão com outro conteúdo e permite recriar após exclusão do aviso", async () => {
+    const id = await notificationId(intent.deduplicationKey);
+    const notifications = db.collection<{ _id: number } & Record<string, unknown>>(name);
+    const other = { _id: id, ...intent.document, id_usuario: 99 };
+    await notifications.insertOne(other);
+    await expect(store.insertOnce(intent)).rejects.toMatchObject({ code: "NOTIFICATION_ID_COLLISION" });
+    expect(await notifications.findOne({ _id: id })).toEqual(other);
+    await notifications.deleteOne({ _id: id });
+    expect(await store.insertOnce(intent)).toBe(true);
+    await notifications.deleteOne({ _id: id });
+    expect(await store.insertOnce(intent)).toBe(true);
   }, 30000);
 });
