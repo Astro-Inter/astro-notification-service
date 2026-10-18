@@ -120,7 +120,7 @@ para tentar inferir ausência de registro.
 2. Consultar candidatos no PostgreSQL em transações somente de leitura, por lotes.
 3. Montar as notificações e suas chaves de negócio.
 4. Em simulação, contabilizar candidatos sem conectar ao MongoDB.
-5. Com gravação habilitada, garantir índices e contador e gravar cada aviso em uma transação idempotente.
+5. Com gravação habilitada, garantir os índices e inserir cada aviso em `notificacoes` com um ID estável.
 6. Registrar contagens e duração e fechar as conexões da execução.
 
 A paginação usa o último ID consultado, sem `OFFSET`. Se `MAX_BATCHES` for
@@ -140,7 +140,7 @@ Collection: `notificacoes`. Cada nova notificação contém **somente** estes ca
 
 | Campo | Tipo BSON | Uso |
 | --- | --- | --- |
-| `_id` | Número | Inteiro positivo gerado pelo contador compartilhado |
+| `_id` | Número | Inteiro positivo estável, calculado da identidade do aviso; não sequencial |
 | `id_usuario` | Número | Destinatário compatível com o modelo atual da API |
 | `titulo` | String | Título preenchido em todas as novas notificações |
 | `mensagem` | String | Texto exibido ao usuário |
@@ -151,7 +151,7 @@ Exemplo completo em Extended JSON, sem campos adicionais:
 
 ```json
 {
-  "_id": 1,
+  "_id": 5635227678125934,
   "id_usuario": 2,
   "mensagem": "Você tem uma participação pendente no evento “Treinamento”. O prazo termina em 2026-10-17 12:00:00 (horário de São Paulo).",
   "data_criacao": { "$date": "2026-10-16T12:00:00.000Z" },
@@ -168,33 +168,35 @@ Os títulos usados são “Conformidade próxima do vencimento”, “Conformida
 vencida”, “Prazo de evento próximo do fim” e “Conclusão aguardando avaliação”,
 conforme a regra. O nome do evento permanece na mensagem.
 
-Workspace, regra, recurso, versão e chave de deduplicação **não são gravados no
-documento da notificação**. O controle fica separado:
-
-- `notificacoes_controle`: `_id` é a chave estável de negócio e `notification_id`
-  referencia o ID numérico do aviso. O índice único de `_id` impede repetir a
-  chave; outro índice único impede associar o mesmo ID a duas chaves.
-- `notificacoes_contadores`: o documento `_id: "notificacoes"` mantém `value`, o
-  contador compartilhado pelos Workers. Na inicialização, `$max` garante um piso
-  igual ao maior `_id` numérico já existente, sem diminuir o contador. O próximo
-  ID parte de 1 quando não há IDs numéricos. ObjectIds antigos não entram no cálculo.
-
+O serviço usa **somente `notificacoes`**, sem coleções auxiliares. Workspace,
+regra, recurso, versão e chave de deduplicação não são adicionados ao documento.
 A chave conserva a composição anterior: versão, regra, workspace, destinatário,
-recurso, data de referência e faixa. Antes de criar um aviso, o serviço consulta
-o controle e as chaves da versão anterior em `notificacoes`. Assim, avisos antigos
-com chave continuam reconhecidos sem serem regravados. Documentos legados sem
-chave não permitem reconstruir sua identidade e são apenas preservados.
+recurso, data de referência e faixa. Um SHA-256 com prefixo `astro.notification.v1`
+e separador nulo fornece 52 bits, somados a `2^52`, para calcular o `_id`.
+O resultado fica entre `4503599627370496` e `9007199254740991`, dentro da precisão
+inteira do JavaScript, sem depender de um contador ou de transações entre coleções.
 
-O incremento do contador, o registro de controle e a inserção do aviso pertencem
-à **mesma transação MongoDB**. Uma falha desfaz as três operações e permite
-reexecutar a mesma chave. Disputas concorrentes são tratadas pelo driver e pelo
-controle único. Reexecuções não alteram título, mensagem ou data do aviso existente.
-O MongoDB precisa suportar transações (replica set ou cluster fragmentado), e o
-usuário da conexão precisa acessar as três collections e criar seus índices.
-O cluster configurado foi validado com transações em collections temporárias.
+A mesma chave produz o mesmo ID em todos os Workers. O índice nativo único de
+`_id` resolve inserções concorrentes; a gravação de um documento é atômica.
+Se a escrita falhar, não existe reserva externa que impeça uma nova tentativa.
+Reexecuções não atualizam o título nem a data de um aviso existente.
 
-Outros produtores de notificações numéricas devem usar o mesmo contador e
-protocolo de gravação; não podem escolher `_id` manualmente em paralelo.
+O hash é truncado, portanto há uma possibilidade teórica de colisão. Um ID
+ocupado por usuário, evento ou mensagem incompatível provoca
+`NOTIFICATION_ID_COLLISION`, sem sobrescrever o documento. Chaves diferentes
+com o mesmo conteúdo e hash não são distinguíveis sem guardar metadados extras.
+Mudanças de mensagem na mesma chave também exigem atenção a essa proteção.
+Outros produtores devem evitar a faixa reservada acima ou usar este protocolo.
+
+Avisos antigos com `chave_deduplicacao` continuam reconhecidos pela chave. IDs
+numéricos positivos abaixo de `2^52` são reconhecidos por destinatário, mensagem
+e evento (ou ausência dele). Seus IDs e documentos são preservados. Esse fallback
+não distingue faixas antigas que tenham o mesmo conteúdo; ele prioriza evitar
+reenvios. Outros documentos legados sem identidade são apenas preservados.
+
+**A deduplicação depende de manter o aviso em `notificacoes`.** Se ele for apagado,
+uma execução futura poderá recriá-lo enquanto a situação continuar elegível.
+Não há um histórico separado de entregas nem persistência de contador.
 
 O índice de consulta é `(id_usuario ASC, data_criacao DESC, _id DESC)`. Os índices
 são criados na primeira execução com gravação habilitada. Se o índice único não
@@ -231,7 +233,7 @@ workers/
 scripts/         desenvolvimento, publicação, importação de credenciais e diagnóstico
 tests/           regras, consultas SQL, persistência e execução
   runtime/       inicialização e eventos agendados dos cinco Workers no workerd
-  integration/   contrato e transações no MongoDB real, somente por execução explícita
+  integration/   contrato e concorrência no MongoDB real, somente por execução explícita
 .github/workflows/ci.yml   validação automática sem credenciais de produção
 ```
 
@@ -354,11 +356,15 @@ A versão
 inicial não possui rotas públicas: `workers_dev` e URLs de preview de produção
 estão desativados; o preview temporário do Wrangler é usado no desenvolvimento.
 
-Para publicar a mudança de contrato numérico, pause primeiro o disparador e aguarde
-as execuções anteriores terminarem. Alinhe o consumidor da API, publique todos os
-Workers de regras e só então retome o disparador. Evite executar simultaneamente
+Para publicar a remoção das coleções de apoio, pause primeiro o disparador e aguarde
+as execuções anteriores terminarem. Publique todos os Workers de regras. Evite executar simultaneamente
 produtores da versão antiga e da nova para a mesma regra: eles guardam o controle
-de deduplicação em locais diferentes. Um rollback também deve começar pela pausa.
+de deduplicação em locais diferentes. Depois de confirmar que todos os Workers usam
+a nova versão, faça backup de `notificacoes_controle` e `notificacoes_contadores`
+e remova somente essas duas coleções. Preserve `notificacoes` integralmente.
+Valide uma execução sem recriar as coleções e só então retome o disparador.
+Um rollback também deve começar pela pausa; republicar versões antigas volta a
+criar as coleções auxiliares e exige restaurar seu backup antes de retomar as regras.
 
 ## Testes e observabilidade
 
@@ -444,19 +450,27 @@ testes de integração explicitamente, configure as credenciais no `.env` e rode
 npm run test:mongo
 ```
 
-Essa execução usa apenas collections temporárias `__astro_contract_<uuid>_*`,
+Essa execução usa apenas coleções temporárias `__astro_contract_<uuid>`,
 removidas após cada teste. Ela verifica o conjunto exato de campos, evento opcional,
 IDs numéricos, disputas pela mesma chave, concorrência entre chaves diferentes,
-compatibilidade com chaves antigas, inicialização do contador, rollback após falha
-e limite de precisão. Nenhuma collection de negócio é escrita pelo teste.
+compatibilidade com chaves antigas e IDs sequenciais, repetição após falha de
+escrita, proteção contra conteúdo incompatível e recriação após exclusão.
+Nenhuma coleção de negócio é escrita pelo teste.
 
 Na validação operacional de **16/10/2026**, os cinco destinos responderam aos
 Service Bindings reais. A execução inicial criou três notificações automáticas;
 uma segunda execução conservou exatamente três, sem alterar os documentos legados.
 Naquela versão, os documentos usavam ObjectId e BSON Date e o índice único parcial
 foi confirmado. A collection temporária de testes foi removida. A correção posterior
-do contrato passou nos cinco testes de integração com `_id` numérico, BSON Date
-e controle separado; isso não significa que essa correção já foi publicada.
+do contrato passou nos cinco testes de integração com `_id` numérico e BSON Date.
+O contrato atual elimina as coleções de apoio conforme descrito acima.
+
+Em **18/10/2026**, os cinco Workers de regras foram publicados com a persistência
+em uma única coleção. Após backup local, `notificacoes_controle` e
+`notificacoes_contadores` foram removidas. As quatro regras ativas concluíram
+uma nova execução, reconheceram os oito avisos elegíveis sem inserções duplicadas
+e não recriaram as coleções auxiliares. Os 26 documentos existentes em
+`notificacoes` foram comparados com o snapshot anterior e permaneceram intactos.
 
 ## Referências
 
