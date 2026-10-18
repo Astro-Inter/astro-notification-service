@@ -33,7 +33,7 @@ export async function deliverNotification(intent: NotificationIntent, ledger: De
   const writer = await open();
   try {
     await writer.ensureIndexes();
-    if (!ledger.status().initialized) ledger.initialize(await writer.maxSequentialId());
+    if (!ledger.initialized()) ledger.initialize(await writer.maxSequentialId());
     if (!existing) {
       const old = await writer.findExisting(intent);
       // Um ID já importado pertence à sua chave original, inclusive entre faixas de antecedência.

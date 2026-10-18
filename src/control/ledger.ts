@@ -21,6 +21,9 @@ export class DeliveryLedger {
   owner(id: number): string | undefined {
     return this.storage.sql.exec<{ business_key: string }>("SELECT business_key FROM deliveries WHERE notification_id = ?", id).toArray()[0]?.business_key;
   }
+  initialized(): boolean {
+    return this.storage.sql.exec<{ ready: number }>("SELECT ready FROM sequence WHERE singleton = 1").one().ready === 1;
+  }
   initialize(floor: number): void {
     if (!Number.isSafeInteger(floor) || floor < 0 || floor >= notificationIdFloor) throw new ServiceError("INVALID_ID_FLOOR", "Piso numérico inválido");
     this.storage.sql.exec("UPDATE sequence SET value = MAX(value, ?), ready = 1 WHERE singleton = 1", floor);
