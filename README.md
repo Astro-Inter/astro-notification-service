@@ -5,8 +5,10 @@ atenção e registra notificações no MongoDB para consumo pela `astro-api`.
 Ele acompanha prazos mesmo quando ninguém acessa ou altera o sistema.
 
 Cada regra é um **Cloudflare Worker independente**, com configuração, publicação
-e execução próprias. Os Workers compartilham os módulos de acesso aos bancos,
-configuração e persistência das notificações neste repositório.
+e execução próprias. Eles consultam o PostgreSQL e encaminham as gravações para
+um Worker técnico, `astro-notification-delivery-control`, que mantém o histórico
+de entregas em um Durable Object SQLite no Cloudflare. No MongoDB, somente
+`notificacoes` é usada.
 
 Tarefa pai: [SCRUM-557 — Implementar serviço de notificações automáticas do Astro com Cloudflare Workers](https://luizacursino.atlassian.net/browse/SCRUM-557).
 
@@ -35,10 +37,11 @@ O estado desativado do processamento de resumos foi preservado.
 | `class-deadlines` | `astro-notification-class-deadlines` | Participações pendentes próximas do prazo da turma | A cada hora, no minuto zero |
 | `pending-validations` | `astro-notification-pending-validations` | Conclusões aguardando avaliação do gestor | Diariamente, 08h em São Paulo |
 | `missing-compliance` | `astro-notification-missing-compliance` | Obrigações sem conformidade registrada | Sem agenda; aplicabilidade pendente |
+| `delivery-control` | `astro-notification-delivery-control` | Reservar IDs, gravar avisos e confirmar entregas | Chamadas internas das regras; sem Cron |
 
 ### Disparador compartilhado
 
-O sexto Worker, `astro-shared-scheduler`, possui a única agenda deste conjunto.
+O `astro-shared-scheduler` possui a única agenda deste conjunto de sete Workers.
 O binding `SUMMARY` aponta para o entrypoint `ScheduledJob` do serviço de resumos;
 `CLASSES`, `EXPIRING`, `EXPIRED` e `VALIDATIONS` apontam para `RuleJob` de cada regra.
 O disparador não acessa bancos nem recebe credenciais deles.
@@ -120,7 +123,7 @@ para tentar inferir ausência de registro.
 2. Consultar candidatos no PostgreSQL em transações somente de leitura, por lotes.
 3. Montar as notificações e suas chaves de negócio.
 4. Em simulação, contabilizar candidatos sem conectar ao MongoDB.
-5. Com gravação habilitada, garantir os índices e inserir cada aviso em `notificacoes` com um ID estável.
+5. Com gravação habilitada, chamar o controle persistente, reservar o ID, garantir os índices e gravar em `notificacoes`.
 6. Registrar contagens e duração e fechar as conexões da execução.
 
 A paginação usa o último ID consultado, sem `OFFSET`. Se `MAX_BATCHES` for
@@ -140,7 +143,7 @@ Collection: `notificacoes`. Cada nova notificação contém **somente** estes ca
 
 | Campo | Tipo BSON | Uso |
 | --- | --- | --- |
-| `_id` | Número | Inteiro positivo estável, calculado da identidade do aviso; não sequencial |
+| `_id` | Número | Inteiro positivo reservado pelo Durable Object; reutilizado nas tentativas da mesma entrega |
 | `id_usuario` | Número | Destinatário compatível com o modelo atual da API |
 | `titulo` | String | Título preenchido em todas as novas notificações |
 | `mensagem` | String | Texto exibido ao usuário |
@@ -151,7 +154,7 @@ Exemplo completo em Extended JSON, sem campos adicionais:
 
 ```json
 {
-  "_id": 5635227678125934,
+  "_id": 43,
   "id_usuario": 2,
   "mensagem": "Você tem uma participação pendente no evento “Treinamento”. O prazo termina em 2026-10-17 12:00:00 (horário de São Paulo).",
   "data_criacao": { "$date": "2026-10-16T12:00:00.000Z" },
@@ -168,35 +171,61 @@ Os títulos usados são “Conformidade próxima do vencimento”, “Conformida
 vencida”, “Prazo de evento próximo do fim” e “Conclusão aguardando avaliação”,
 conforme a regra. O nome do evento permanece na mensagem.
 
-O serviço usa **somente `notificacoes`**, sem coleções auxiliares. Workspace,
+No MongoDB, o serviço usa **somente `notificacoes`**, sem coleções auxiliares. Workspace,
 regra, recurso, versão e chave de deduplicação não são adicionados ao documento.
 A chave conserva a composição anterior: versão, regra, workspace, destinatário,
-recurso, data de referência e faixa. Um SHA-256 com prefixo `astro.notification.v1`
-e separador nulo fornece 52 bits, somados a `2^52`, para calcular o `_id`.
-O resultado fica entre `4503599627370496` e `9007199254740991`, dentro da precisão
-inteira do JavaScript, sem depender de um contador ou de transações entre coleções.
+recurso, data de referência e faixa.
 
-A mesma chave produz o mesmo ID em todos os Workers. O índice nativo único de
-`_id` resolve inserções concorrentes; a gravação de um documento é atômica.
-Se a escrita falhar, não existe reserva externa que impeça uma nova tentativa.
-Reexecuções não atualizam o título nem a data de um aviso existente.
+### Controle persistente no Cloudflare
 
-O hash é truncado, portanto há uma possibilidade teórica de colisão. Um ID
-ocupado por usuário, evento ou mensagem incompatível provoca
-`NOTIFICATION_ID_COLLISION`, sem sobrescrever o documento. Chaves diferentes
-com o mesmo conteúdo e hash não são distinguíveis sem guardar metadados extras.
-Mudanças de mensagem na mesma chave também exigem atenção a essa proteção.
-Outros produtores devem evitar a faixa reservada acima ou usar este protocolo.
+O entrypoint interno `DeliveryControl` encaminha todas as entregas para a mesma
+instância de `NotificationCoordinator`, identificada por
+`<APP_ENV>:notificacoes:v1`. Seu armazenamento SQLite mantém a sequência numérica
+e, para cada chave de negócio, o ID reservado, o estado `pending` ou `confirmed`,
+a data inicial e uma impressão SHA-256 do conteúdo. Não são armazenadas cópias
+das mensagens nem dos títulos nesse histórico.
+
+O fluxo é **reservar e persistir → gravar no MongoDB → confirmar e persistir**.
+As entregas são serializadas na instância; transações SQLite curtas protegem a
+reserva e o avanço da sequência, sem manter uma transação aberta durante I/O.
+Falhas não bloqueiam as chamadas seguintes. O índice nativo de `_id` no Mongo
+protege a escrita repetida do mesmo documento.
+
+Na inicialização, o contador parte do maior ID numérico existente abaixo de
+`2^52`, respeitando os IDs importados. Novos IDs são sequenciais nessa faixa,
+sem garantia de sequência sem lacunas: uma reserva pendente já ocupa seu número.
+A faixa superior usada pela versão anterior permanece preservada e reconhecida;
+novos IDs não dependem de hashes truncados. Outros produtores devem usar o mesmo
+controle ou uma faixa numérica acordada; o serviço não coordena escritores externos.
+
+Se a escrita falhar, a próxima execução elegível retoma o ID e a data reservados.
+Se o Mongo gravar mas a confirmação falhar, a nova tentativa verifica o mesmo ID
+e confirma sem sobrescrever o aviso. Um ID ocupado por conteúdo incompatível causa
+`NOTIFICATION_ID_COLLISION`; conteúdo diferente para uma reserva pendente causa
+`PENDING_CONTENT_MISMATCH`. Entregas já confirmadas retornam duplicata sem abrir
+conexão com o Mongo. **Apagar um aviso confirmado não o torna elegível para reenvio.**
+
+Não existe transação distribuída entre SQLite e MongoDB. Uma operação cujo
+resultado ficou incerto permanece pendente até ser reconciliada em outra execução.
+Se houver exclusão externa durante essa janela, a reserva ainda pendente pode
+recriar o documento. A retomada depende de a regra voltar a selecionar o candidato;
+não há fila nem retentativa autônoma para situações que deixaram de ser elegíveis.
+O coordenador compartilhado prioriza consistência e serializa as gravações; seu
+volume e os limites do plano Free devem ser acompanhados antes de ampliar a carga.
 
 Avisos antigos com `chave_deduplicacao` continuam reconhecidos pela chave. IDs
 numéricos positivos abaixo de `2^52` são reconhecidos por destinatário, mensagem
-e evento (ou ausência dele). Seus IDs e documentos são preservados. Esse fallback
-não distingue faixas antigas que tenham o mesmo conteúdo; ele prioriza evitar
-reenvios. Outros documentos legados sem identidade são apenas preservados.
-
-**A deduplicação depende de manter o aviso em `notificacoes`.** Se ele for apagado,
-uma execução futura poderá recriá-lo enquanto a situação continuar elegível.
-Não há um histórico separado de entregas nem persistência de contador.
+e evento (ou ausência dele). Seus IDs e documentos são preservados. Um ID já
+associado no histórico à sua chave original não é confundido com outra faixa de
+antecedência. Sem metadados suficientes, o fallback por conteúdo prioriza evitar
+reenvios e pode agrupar faixas antigas iguais. Outros documentos legados sem
+identidade são apenas preservados. O histórico disponível nas coleções removidas
+pode ser importado por `DeliveryControl.importConfirmed()` em lotes de até 100
+recibos `{ key, id }`, somente por Service Binding. ObjectIds antigos usam `id: null`.
+Importações incompatíveis são rejeitadas integralmente.
+`DeliveryControl.initialize()` valida a conexão, garante os índices e atualiza o
+piso do contador sem diminuir seu valor. `status()` informa a inicialização e as
+contagens de reservas e confirmações; ambos também são internos.
 
 O índice de consulta é `(id_usuario ASC, data_criacao DESC, _id DESC)`. Os índices
 são criados na primeira execução com gravação habilitada. Se o índice único não
@@ -224,15 +253,16 @@ histórico e filtragem de situações superadas exigem alinhamento com a API.
 
 ```text
 src/
-  workers/       uma entrada por regra e uma para o disparador
+  workers/       entradas das regras, do controle persistente e do disparador
   scheduler/     seleção das tarefas horárias e diárias e despacho independente
   rules/         consultas de candidatos por regra
+  control/       reservas, confirmações e sequência persistente em SQLite
   shared/        configuração, execução, PostgreSQL, MongoDB e notificações
 workers/
   <regra>/wrangler.jsonc   configuração independente de publicação
 scripts/         desenvolvimento, publicação, importação de credenciais e diagnóstico
 tests/           regras, consultas SQL, persistência e execução
-  runtime/       inicialização e eventos agendados dos cinco Workers no workerd
+  runtime/       eventos, RPC e Durable Object SQLite no workerd
   integration/   contrato e concorrência no MongoDB real, somente por execução explícita
 .github/workflows/ci.yml   validação automática sem credenciais de produção
 ```
@@ -301,8 +331,10 @@ o schema do PostgreSQL e executa `ping` no MongoDB; não modifica registros.
 | `HYPERDRIVE` | Binding de produção | Pool do PostgreSQL; tem precedência sobre `DATABASE_URL` |
 | `DATABASE_URL` | Sem padrão | Conexão direta para desenvolvimento |
 | `PG_CA_CERT` | Sem padrão | CA em PEM para conexão direta; aceita quebras escapadas `\n` |
-| `MONGODB_URI` | Secret | Conexão com o MongoDB |
-| `MONGODB_DATABASE` | Secret | Nome do banco que contém `notificacoes` |
+| `NOTIFICATION_CONTROL` | Service Binding das regras | Entrypoint `DeliveryControl` do Worker técnico |
+| `DELIVERIES` | Durable Object no Worker técnico | Classe `NotificationCoordinator`, com backend SQLite |
+| `MONGODB_URI` | Secret somente no Worker técnico | Conexão com o MongoDB |
+| `MONGODB_DATABASE` | Secret somente no Worker técnico | Nome do banco que contém `notificacoes` |
 | `DAILY_HOUR_UTC` | `11` no disparador | Hora UTC das três análises diárias, de 0 a 23 |
 | `APP_ENV` | `production` no Cloudflare; `development` em dev | Ambiente registrado nos logs OTLP |
 | `GRAFANA_OTLP_ENDPOINT` | Secret opcional | Base HTTPS do Grafana terminada em `/otlp`, ou URL completa `/otlp/v1/logs` |
@@ -323,17 +355,21 @@ Autentique o Wrangler na conta correta. O build não publica recursos:
 
 ```sh
 npm run build
+npm run deploy -- delivery-control
+npm run secrets:upload
 npm run deploy -- expiring-compliance
-npm run secrets:upload -- expiring-compliance
 ```
 
-Sem identificador, `build` e `deploy` processam os cinco Workers de regras e por
-último o disparador. `secrets:upload` processa somente os cinco Workers de regras.
+Sem identificador, `build` e `deploy` processam primeiro o controle, depois os cinco
+Workers de regras e por último o disparador. `secrets:upload` processa somente
+`delivery-control`; as regras não precisam de secrets do MongoDB.
 O envio de secrets lê o `.env` e transfere somente os dois campos
 do MongoDB pela entrada padrão, sem colocar os valores na linha de comando.
 
-Para uma nova instalação, publique primeiro as regras desabilitadas ou em simulação,
-configure os secrets e confira as conexões e candidatos antes de habilitar gravação.
+Para uma nova instalação, publique primeiro o controle, configure seus secrets
+MongoDB e Grafana e publique as regras desabilitadas ou em simulação. Confira as
+conexões e candidatos antes de habilitar gravação. A configuração usa a migração
+`new_sqlite_classes`, compatível com o plano Free; não substitua por armazenamento KV legado.
 O Worker `missing-compliance` continuará bloqueado até implementar a aplicabilidade.
 
 Na migração do agendamento:
@@ -356,15 +392,16 @@ A versão
 inicial não possui rotas públicas: `workers_dev` e URLs de preview de produção
 estão desativados; o preview temporário do Wrangler é usado no desenvolvimento.
 
-Para publicar a remoção das coleções de apoio, pause primeiro o disparador e aguarde
-as execuções anteriores terminarem. Publique todos os Workers de regras. Evite executar simultaneamente
-produtores da versão antiga e da nova para a mesma regra: eles guardam o controle
-de deduplicação em locais diferentes. Depois de confirmar que todos os Workers usam
-a nova versão, faça backup de `notificacoes_controle` e `notificacoes_contadores`
-e remova somente essas duas coleções. Preserve `notificacoes` integralmente.
-Valide uma execução sem recriar as coleções e só então retome o disparador.
-Um rollback também deve começar pela pausa; republicar versões antigas volta a
-criar as coleções auxiliares e exige restaurar seu backup antes de retomar as regras.
+Para migrar o controle, publique primeiro o Worker técnico sem conectar as regras.
+Pause o disparador e aguarde execuções anteriores terminarem. Preserve um snapshot
+de `notificacoes` e importe os recibos disponíveis no backup de
+`notificacoes_controle`, além das chaves legadas ainda presentes nos avisos.
+Publique as cinco regras com o binding `NOTIFICATION_CONTROL`, valide o histórico
+e uma reexecução e só então retome o disparador. As duas coleções auxiliares já
+removidas não devem ser recriadas. Preserve o namespace do Durable Object e sua
+identidade: apagá-lo ou trocar `APP_ENV` perde o acesso ao histórico daquela instância.
+Um rollback deve começar pela pausa e preservar o histórico; voltar a um escritor
+sem esse controle pode reenviar avisos ou disputar IDs já reservados.
 
 ## Testes e observabilidade
 
@@ -375,7 +412,8 @@ criar as coleções auxiliares e exige restaurar seu backup antes de retomar as 
   garantia do índice e fechamento das conexões.
 - Runtime: os cinco Workers de regras iniciam no workerd, recebem eventos e chamadas
   RPC desabilitados sem credenciais; o disparador seleciona e chama os destinos corretos.
-- CI: tipagem, testes, runtime e build dos seis bundles a cada alteração.
+- Controle: SQLite real, reserva durável, confirmação, importação e recuperação de falhas.
+- CI: tipagem, testes, runtime e build dos sete bundles a cada alteração.
 
 Os logs estruturados incluem `rule`, `runId`, duração, quantidade de candidatos,
 inserções, duplicatas e lotes. Falhas usam `execution_failed` e código sanitizado,
@@ -385,7 +423,7 @@ execuções no painel e reexecute após corrigir a causa.
 
 ### Logs no Grafana Cloud
 
-As cinco regras e o disparador enviam seus logs operacionais por OTLP/HTTP JSON.
+As cinco regras, o controle persistente e o disparador enviam logs operacionais por OTLP/HTTP JSON.
 Cada execução guarda um lote isolado em `AsyncLocalStorage` e aguarda o envio no
 fim, tanto em sucesso quanto em falha. O mesmo mecanismo cobre Cron, RPC e preview.
 Os contextos de execuções concorrentes não compartilham registros. As rotas HTTP
@@ -401,7 +439,7 @@ Não são enviados dados dos destinatários, mensagens das notificações, consu
 URIs dos bancos, credenciais ou objetos de exceção.
 
 Para configurar, preencha os dois campos `GRAFANA_OTLP_*` no `.env` ignorado e
-envie somente esses secrets aos seis Workers:
+envie somente esses secrets aos sete Workers:
 
 ```sh
 npm run secrets:grafana
@@ -412,7 +450,7 @@ npm run deploy
 
 O script usa a entrada padrão do Wrangler e não imprime os valores. Ele não envia
 credenciais de banco ao disparador. `secrets:upload` continua tratando somente os
-secrets MongoDB das cinco regras. A base `/otlp` recebe o sufixo `/v1/logs`;
+secrets MongoDB do Worker de controle. A base `/otlp` recebe o sufixo `/v1/logs`;
 o sufixo não é repetido quando a URL já está completa. A autenticação aceita o
 formato `Authorization=Basic%20<credencial-base64>`. Não há credenciais nos
 arquivos Wrangler ou no Git.
@@ -443,7 +481,7 @@ geram recursão de telemetria. Essa validação confirma a ingestão; uma respos
 aceite não equivale a uma consulta de leitura no painel do Grafana.
 
 O pipeline de gravação é coberto por testes com substitutos das collections; os
-testes padrão e a simulação não escrevem no MongoDB real. Para executar os cinco
+testes padrão e a simulação não escrevem no MongoDB real. Para executar os seis
 testes de integração explicitamente, configure as credenciais no `.env` e rode:
 
 ```sh
@@ -454,7 +492,7 @@ Essa execução usa apenas coleções temporárias `__astro_contract_<uuid>`,
 removidas após cada teste. Ela verifica o conjunto exato de campos, evento opcional,
 IDs numéricos, disputas pela mesma chave, concorrência entre chaves diferentes,
 compatibilidade com chaves antigas e IDs sequenciais, repetição após falha de
-escrita, proteção contra conteúdo incompatível e recriação após exclusão.
+escrita, proteção contra conteúdo incompatível, IDs calculados antigos e bloqueio de reenvio após exclusão de aviso confirmado.
 Nenhuma coleção de negócio é escrita pelo teste.
 
 Na validação operacional de **16/10/2026**, os cinco destinos responderam aos
@@ -472,9 +510,19 @@ uma nova execução, reconheceram os oito avisos elegíveis sem inserções dupl
 e não recriaram as coleções auxiliares. Os 26 documentos existentes em
 `notificacoes` foram comparados com o snapshot anterior e permaneceram intactos.
 
+A continuação dessa entrega adicionou `astro-notification-delivery-control` com
+Durable Object SQLite. Foram importados oito recibos históricos, o contador foi
+inicializado acima dos IDs existentes e uma execução das regras reconheceu cinco
+avisos de prazo e três de validação sem novas inserções. O controle ficou com
+oito confirmações e nenhuma entrega pendente; as 26 notificações permaneceram
+intactas e as duas coleções removidas continuaram ausentes. Os secrets MongoDB
+foram retirados das regras e mantidos somente no Worker técnico.
+
 ## Referências
 
 - [Documentação dos bancos do Astro](https://astro-inter.github.io/banco-de-dados/).
+- [Durable Objects com armazenamento SQLite](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/).
+- [Planos e limites dos Durable Objects](https://developers.cloudflare.com/durable-objects/platform/pricing/).
 - [Modelo PostgreSQL](https://github.com/Astro-Inter/banco-de-dados/blob/main/database/scripts/1_create_table.sql).
 - [Precedência da view de conformidades](https://github.com/Astro-Inter/banco-de-dados/blob/main/database/views/07_vw_conformidades.sql).
 - [Consumo atual das notificações na API](https://github.com/Astro-Inter/astro-api/tree/main/src/main/java/com/astro/api/notification).
