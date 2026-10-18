@@ -11,6 +11,7 @@ export const ruleIds = [
 export type RuleId = typeof ruleIds[number];
 
 export interface Env extends GrafanaEnv {
+  NOTIFICATION_CONTROL?: { deliver(intent: NotificationIntent): Promise<boolean> };
   ENABLED?: string;
   DRY_RUN?: string;
   DATABASE_URL?: string;

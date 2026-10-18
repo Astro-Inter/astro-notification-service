@@ -6,4 +6,4 @@ export const workers = [
   "missing-compliance",
 ];
 
-export const allWorkers = [...workers, "scheduler"];
+export const allWorkers = ["delivery-control", ...workers, "scheduler"];

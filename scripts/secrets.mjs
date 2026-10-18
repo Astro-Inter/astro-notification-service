@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
-import { workers } from "./worker-list.mjs";
+const workers = ["delivery-control"];
 
 const [selection, filename = ".env"] = process.argv.slice(2);
 if (selection && !workers.includes(selection)) {
@@ -18,7 +18,7 @@ for (const key of ["MONGODB_URI", "MONGODB_DATABASE"]) {
 const wrangler = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 for (const worker of selection ? [selection] : workers) {
   const result = spawnSync(process.execPath,
-    [wrangler, "secret", "bulk", "--config", `workers/${worker}/wrangler.jsonc`],
-    { input: JSON.stringify(secrets), stdio: ["pipe", "inherit", "inherit"], shell: false });
+    ["--dns-result-order=ipv4first", wrangler, "secret", "bulk", "--config", `workers/${worker}/wrangler.jsonc`],
+    { input: JSON.stringify(secrets), stdio: ["pipe", "inherit", "inherit"], shell: false, timeout: 60000 });
   if (result.error || result.status !== 0) process.exit(result.status ?? 1);
 }

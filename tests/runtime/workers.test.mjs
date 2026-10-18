@@ -15,6 +15,15 @@ const configs = workers.map(rule => {
   return { config, secrets: { DATABASE_URL: "", MONGODB_URI: "", MONGODB_DATABASE: "" } };
 });
 const scheduler = JSON.parse(readFileSync("workers/scheduler/wrangler.jsonc", "utf8"));
+const control = JSON.parse(readFileSync("workers/delivery-control/wrangler.jsonc", "utf8"));
+delete control.account_id;
+delete control.$schema;
+control.main = resolve("src/workers/delivery-control.ts");
+configs.push({ config: control });
+configs.push({ config: { name: "control-fixture", main: resolve("tests/runtime/control-fixture.ts"),
+  compatibility_date: "2026-10-18", compatibility_flags: ["nodejs_compat"],
+  durable_objects: { bindings: [{ name: "FIXTURE", class_name: "ControlFixture" }] },
+  migrations: [{ tag: "v1", new_sqlite_classes: ["ControlFixture"] }] } });
 delete scheduler.account_id;
 delete scheduler.$schema;
 scheduler.main = resolve("src/workers/scheduler.ts");
@@ -64,4 +73,32 @@ test("disparador chama cinco serviços no horário diário e somente dois nas ou
   assert.equal((await hourly.json()).outcomes.length, 2);
   const inspected = await probe.fetch("https://example.com/SCHEDULER/inspect");
   assert.equal((await inspected.json()).length, 5);
+});
+
+test("controle persistente coordena concorrência, reinício, exclusão e falha após gravar", async () => {
+  const fixture = server.getWorker("control-fixture");
+  assert.equal((await (await fixture.fetch("https://example.com/initialize")).json()).initialized, true);
+  const intent = { deduplicationKey: "runtime-one", document: { id_usuario: 2, id_evento: 1,
+    mensagem: "Fixture", titulo: "Fixture", data_criacao: "2026-10-18T12:00:00.000Z" } };
+  const deliver = async body => {
+    const response = await fixture.fetch("https://example.com/deliver", { method: "POST", body: JSON.stringify(body) });
+    return { ...await response.json(), status: response.status };
+  };
+  const concurrent = await Promise.all(Array.from({ length: 6 }, () => deliver(intent)));
+  assert.equal(concurrent.filter(result => result.inserted).length, 1);
+  assert.ok(concurrent.every(result => result.status === 200));
+  await fixture.fetch("https://example.com/clear");
+  await fixture.fetch("https://example.com/restart");
+  assert.equal((await deliver(intent)).inserted, false);
+  assert.equal((await (await fixture.fetch("https://example.com/status")).json()).documents.length, 0);
+  await fixture.fetch("https://example.com/fail");
+  const retry = { ...intent, deduplicationKey: "runtime-retry" };
+  assert.equal((await deliver(retry)).status, 500);
+  const pending = await (await fixture.fetch("https://example.com/status")).json();
+  assert.equal(pending.status.pending, 1); assert.equal(pending.documents[0]._id, 2);
+  await fixture.fetch("https://example.com/restart");
+  assert.equal((await deliver(retry)).inserted, false);
+  const confirmed = await (await fixture.fetch("https://example.com/status")).json();
+  assert.equal(confirmed.status.pending, 0); assert.equal(confirmed.status.confirmed, 2);
+  assert.equal(confirmed.documents.length, 1); assert.equal(confirmed.documents[0]._id, 2);
 });

@@ -1,92 +1,50 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Db, MongoClient } from "mongodb";
-import { collectionNames, collectionStore } from "../src/shared/mongo";
-import type { NotificationIntent } from "../src/shared/types";
-
-const intent: NotificationIntent = {
-  document: { id_usuario: 2, titulo: "Treinamento pendente", mensagem: "Conclua o treinamento pendente.",
-    data_criacao: new Date("2026-06-25T12:19:40.233Z"), id_evento: 1 },
-  deduplicationKey: "example",
-};
-
+import type { Db } from "mongodb";
+import { collectionWriter } from "../src/shared/mongo";
+import { notificationId } from "../src/shared/notification-id";
+const document = { id_usuario: 2, titulo: "Treinamento", mensagem: "Conclua o treinamento.", data_criacao: new Date(), id_evento: 1 };
 function setup() {
   const notifications = { createIndex: vi.fn(), findOne: vi.fn().mockResolvedValue(null), insertOne: vi.fn() };
-  const deliveries = { createIndex: vi.fn(), findOne: vi.fn().mockResolvedValue(null), insertOne: vi.fn() };
-  const counters = { updateOne: vi.fn(), findOneAndUpdate: vi.fn().mockResolvedValue({ _id: "notificacoes", value: 43 }) };
-  const collections = { [collectionNames.notifications]: notifications, [collectionNames.deliveries]: deliveries,
-    [collectionNames.counters]: counters };
-  const db = { collection: (name: keyof typeof collections) => collections[name] } as unknown as Db;
-  const session = { withTransaction: vi.fn(async callback => callback()) };
-  const client = { withSession: vi.fn(async callback => callback(session)) } as unknown as MongoClient;
-  return { notifications, deliveries, counters, session, store: collectionStore(db, client, async () => {}) };
+  const collection = vi.fn((name: string) => notifications);
+  return { notifications, collection, writer: collectionWriter({ collection } as unknown as Db, async () => {}) };
 }
-
-describe("persistência idempotente", () => {
-  it("inicializa o contador acima dos IDs numéricos existentes e separa os índices de controle", async () => {
-    const { store, notifications, counters, deliveries } = setup();
-    notifications.findOne.mockResolvedValueOnce({ _id: 42 });
-    await store.ensureIndexes();
-    expect(notifications.findOne).toHaveBeenCalledWith({ $or: [
-      { _id: { $type: "double" } }, { _id: { $type: "int" } },
-      { _id: { $type: "long" } }, { _id: { $type: "decimal" } },
-    ] },
-      { sort: { _id: -1 }, projection: { _id: 1 } });
-    expect(counters.updateOne).toHaveBeenCalledWith({ _id: "notificacoes" }, { $max: { value: 42 } }, { upsert: true });
-    expect(deliveries.createIndex).toHaveBeenCalledWith({ notification_id: 1 },
-      { name: "uq_notificacoes_controle_id", unique: true });
+describe("escrita MongoDB em uma coleção", () => {
+  it("abre somente notificacoes e cria seus índices", async () => {
+    const { writer, collection, notifications } = setup(); await writer.ensureIndexes();
+    expect(collection.mock.calls).toEqual([["notificacoes"]]); expect(notifications.createIndex).toHaveBeenCalledTimes(2);
   });
-  it("grava somente o modelo solicitado e usa a mesma transação para ID, controle e aviso", async () => {
-    const { store, notifications, deliveries, counters, session } = setup();
-    const extra = { ...intent, document: { ...intent.document, workspace_id: 999, chave_deduplicacao: "não persistir" } };
-    expect(await store.insertOnce(extra)).toBe(true);
-    expect(notifications.insertOne).toHaveBeenCalledWith({ _id: 43, ...intent.document }, { session });
-    expect(deliveries.insertOne).toHaveBeenCalledWith({ _id: "example", notification_id: 43 }, { session });
-    expect(counters.findOneAndUpdate.mock.calls[0]![2]).toMatchObject({ session });
-    expect(session.withTransaction).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
-      readConcern: { level: "snapshot" }, writeConcern: { w: "majority" },
-    }));
+  it("grava somente os campos solicitados com o ID reservado", async () => {
+    const { writer, notifications } = setup();
+    await writer.write(43, { ...document, workspace_id: 999 } as typeof document);
+    expect(notifications.insertOne).toHaveBeenCalledWith({ _id: 43, ...document });
   });
-  it("tolera criação concorrente do contador sem diminuir seu valor", async () => {
-    const { store, counters } = setup();
-    counters.updateOne.mockRejectedValueOnce({ code: 11000 });
-    await store.ensureIndexes();
-    expect(counters.updateOne.mock.calls[1]).toEqual([{ _id: "notificacoes" }, { $max: { value: 0 } }]);
+  it("omite id_evento ausente", async () => {
+    const { writer, notifications } = setup(); const { id_evento: _, ...withoutEvent } = document;
+    await writer.write(43, withoutEvent); expect(notifications.insertOne.mock.calls[0]![0]).not.toHaveProperty("id_evento");
   });
-  it("recusa IDs existentes fora da precisão suportada antes de inicializar o contador", async () => {
-    const { store, notifications, counters } = setup();
-    notifications.findOne.mockResolvedValueOnce({ _id: Number.MAX_SAFE_INTEGER + 1 });
-    await expect(store.ensureIndexes()).rejects.toThrow("Identificador");
-    expect(counters.updateOne).not.toHaveBeenCalled();
+  it("retorna o maior ID sequencial e recusa falta de precisão", async () => {
+    const { writer, notifications } = setup();
+    notifications.findOne.mockResolvedValueOnce({ _id: 42 }); expect(await writer.maxSequentialId()).toBe(42);
+    notifications.findOne.mockResolvedValueOnce({ _id: 1.5 }); await expect(writer.maxSequentialId()).rejects.toThrow();
   });
-  it("omite id_evento quando não existe", async () => {
-    const { store, notifications } = setup();
-    const { id_evento: _, ...document } = intent.document;
-    await store.insertOnce({ ...intent, document });
-    expect(notifications.insertOne.mock.calls[0]![0]).not.toHaveProperty("id_evento");
+  it("reconhece IDs calculados na versão anterior", async () => {
+    const { writer, notifications } = setup(); const id = await notificationId("example");
+    notifications.findOne.mockResolvedValueOnce({ _id: id, ...document });
+    expect(await writer.findExisting({ document, deduplicationKey: "example" })).toEqual({ id, precise: true });
   });
-  it.each(["controle", "legado"])("não recria notificações reconhecidas pelo %s", async origin => {
-    const { store, notifications, deliveries, counters } = setup();
-    if (origin === "controle") deliveries.findOne.mockResolvedValueOnce({ _id: "example", notification_id: 1 });
-    else notifications.findOne.mockResolvedValueOnce({ _id: "object-id-legado" });
-    expect(await store.insertOnce(intent)).toBe(false);
-    expect(counters.findOneAndUpdate).not.toHaveBeenCalled();
+  it("reconhece gravação concorrente ou tentativa anterior pelo mesmo ID", async () => {
+    const { writer, notifications } = setup();
+    notifications.insertOne.mockRejectedValueOnce({ code: 11000, keyPattern: { _id: 1 } });
+    notifications.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({ _id: 43, ...document });
+    expect(await writer.write(43, document)).toBe(false);
+  });
+  it("recusa ID ocupado por outro conteúdo", async () => {
+    const { writer, notifications } = setup(); notifications.findOne.mockResolvedValue({ _id: 43, ...document, id_usuario: 99 });
+    await expect(writer.write(43, document)).rejects.toMatchObject({ code: "NOTIFICATION_ID_COLLISION" });
     expect(notifications.insertOne).not.toHaveBeenCalled();
   });
-  it("só aceita colisão de chave como duplicata quando a entrega está confirmada", async () => {
-    const { store, deliveries, notifications } = setup();
-    deliveries.insertOne.mockRejectedValueOnce({ code: 11000 });
-    deliveries.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce({ _id: "example", notification_id: 1 });
-    expect(await store.insertOnce(intent)).toBe(false);
-    notifications.insertOne.mockRejectedValueOnce({ code: 11000 });
-    await expect(store.insertOnce(intent)).rejects.toMatchObject({ code: 11000 });
-  });
-  it("propaga falha de gravação e recusa contador ausente ou sem precisão", async () => {
-    const { store, notifications, counters } = setup();
-    notifications.insertOne.mockRejectedValueOnce(new Error("write failed"));
-    await expect(store.insertOnce(intent)).rejects.toThrow("write failed");
-    for (const counter of [null, { value: Number.MAX_SAFE_INTEGER + 1 }]) {
-      counters.findOneAndUpdate.mockResolvedValueOnce(counter);
-      await expect(store.insertOnce(intent)).rejects.toThrow("Contador");
-    }
+  it.each([{ code: 11000, keyPattern: { mensagem: 1 } }, new Error("write_failed")])("propaga falhas de escrita", async error => {
+    const { writer, notifications } = setup(); notifications.insertOne.mockRejectedValueOnce(error);
+    await expect(writer.write(43, document)).rejects.toEqual(error);
   });
 });
