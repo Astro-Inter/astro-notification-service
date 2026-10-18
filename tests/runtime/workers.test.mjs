@@ -77,6 +77,7 @@ test("disparador chama cinco serviços no horário diário e somente dois nas ou
 
 test("controle persistente coordena concorrência, reinício, exclusão e falha após gravar", async () => {
   const fixture = server.getWorker("control-fixture");
+  assert.equal((await (await fixture.fetch("https://example.com/initialize")).json()).initialized, true);
   const intent = { deduplicationKey: "runtime-one", document: { id_usuario: 2, id_evento: 1,
     mensagem: "Fixture", titulo: "Fixture", data_criacao: "2026-10-18T12:00:00.000Z" } };
   const deliver = async body => {

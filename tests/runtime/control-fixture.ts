@@ -31,6 +31,7 @@ export default {
     const object = env.FIXTURE.get(env.FIXTURE.idFromName("test"));
     const route = new URL(request.url).pathname;
     try {
+      if (route === "/initialize") return Response.json(await object.initialize());
       if (route === "/deliver") {
         const body = await request.json() as NotificationIntent;
         body.document.data_criacao = new Date(body.document.data_criacao);

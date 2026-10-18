@@ -27,7 +27,7 @@ export class NotificationCoordinator extends DurableObject<ControlEnv> {
   }
   protected openWriter(): Promise<NotificationWriter> { return openNotificationWriter(this.env); }
   deliver(intent: NotificationIntent): Promise<boolean> {
-    return this.serialize(() => withTelemetry(this.env, "astro-notification-delivery-control", {}, async () => {
+    return this.serialize(() => withTelemetry(this.env, "astro-notification-delivery-control", { runId: crypto.randomUUID() }, async () => {
       try {
         const inserted = await deliverNotification(intent, this.ledger, () => this.openWriter(), () => this.ctx.storage.sync());
         logEvent("info", { event: "delivery_finished", status: "completed", inserted: inserted ? 1 : 0, duplicates: inserted ? 0 : 1 });
@@ -41,6 +41,18 @@ export class NotificationCoordinator extends DurableObject<ControlEnv> {
   importConfirmed(receipts: Receipt[]) {
     return this.serialize(async () => { this.ledger.importConfirmed(receipts); await this.ctx.storage.sync(); return this.ledger.status(); });
   }
+  initialize() {
+    return this.serialize(async () => {
+      const writer = await this.openWriter();
+      try {
+        await writer.ensureIndexes();
+        this.ledger.initialize(await writer.maxSequentialId());
+        await this.ctx.storage.sync();
+        return this.ledger.status();
+      } catch (error) { throw new Error(`Falha na inicialização: ${safeErrorCode(error)}`); }
+      finally { await writer.close(); }
+    });
+  }
   status() { return this.serialize(async () => this.ledger.status()); }
 }
 
@@ -48,6 +60,7 @@ export class DeliveryControl extends WorkerEntrypoint<ControlEnv> {
   private coordinator() { return this.env.DELIVERIES.get(this.env.DELIVERIES.idFromName(`${this.env.APP_ENV ?? "production"}:notificacoes:v1`)); }
   deliver(intent: NotificationIntent) { return this.coordinator().deliver(intent); }
   importConfirmed(receipts: Receipt[]) { return this.coordinator().importConfirmed(receipts); }
+  initialize() { return this.coordinator().initialize(); }
   status() { return this.coordinator().status(); }
 }
 
