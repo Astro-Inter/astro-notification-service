@@ -37,7 +37,7 @@ for (const worker of selection ? [selection] : workers) {
     console.error("Opções extras são aceitas apenas em dev.");
     process.exit(1);
   }
-  if (action === "build") args.push("--dry-run", "--outdir", `../../dist/${worker}`);
+  if (action === "build") args.push("--dry-run", "--outdir", resolve("dist", worker));
   const result = spawnSync(process.execPath, args, { stdio: "inherit", shell: false });
   if (result.error || result.status !== 0) process.exit(result.status ?? 1);
 }

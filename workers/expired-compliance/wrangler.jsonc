@@ -9,6 +9,7 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "c561f75615114c0b9358bc5c35159b7d" }],
+  "services": [{ "binding": "NOTIFICATION_CONTROL", "service": "astro-notification-delivery-control", "entrypoint": "DeliveryControl" }],
   "triggers": { "crons": [] },
   "vars": { "APP_ENV": "production", "ENABLED": "true", "DRY_RUN": "false" }
 }

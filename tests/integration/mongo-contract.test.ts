@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { collectionStore } from "../../src/shared/mongo";
+import { collectionWriter } from "../../src/shared/mongo";
 import { notificationId } from "../../src/shared/notification-id";
+import { deliverNotification } from "../../src/control/delivery";
+import { sqliteLedger } from "../helpers/ledger";
 import type { NotificationIntent, NotificationStore } from "../../src/shared/types";
 
 // Só executa mediante opção explícita. Nunca escreve nas coleções de negócio.
@@ -11,6 +13,7 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
   let db: Db;
   let store: NotificationStore;
   let name: string;
+  let ledgerState: ReturnType<typeof sqliteLedger>;
   const intent: NotificationIntent = { deduplicationKey: "event-1", document: {
     id_usuario: 2, mensagem: "Conclua o treinamento pendente.",
     data_criacao: new Date("2026-06-25T12:19:40.233Z"), id_evento: 1, titulo: "Treinamento pendente",
@@ -26,11 +29,15 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
 
   beforeEach(async () => {
     name = `__astro_contract_${randomUUID().replaceAll("-", "")}`;
-    store = collectionStore(db, async () => {}, name);
+    ledgerState = sqliteLedger();
+    const writer = collectionWriter(db, async () => {}, name);
+    store = { ensureIndexes: () => writer.ensureIndexes(), close: async () => {},
+      insertOnce: intent => deliverNotification(intent, ledgerState.ledger, async () => writer, async () => {}) };
     await store.ensureIndexes();
   }, 20000);
 
   afterEach(async () => {
+    ledgerState?.close();
     if (!name || !db) return;
     if (!/^__astro_contract_[a-f0-9]{32}$/.test(name)) throw new Error("Nome de coleção temporária inválido");
     await db.collection(name).drop().catch(error => { if (error.code !== 26) throw error; });
@@ -40,11 +47,11 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
   it("persiste somente os campos solicitados, com e sem evento, e conserva a data nas reexecuções", async () => {
     expect(await store.insertOnce(intent)).toBe(true);
     expect(await store.insertOnce({ ...intent, document: { ...intent.document, titulo: "Não deve substituir" } })).toBe(false);
-    expect(await db.collection(name).findOne({})).toEqual({ _id: await notificationId("event-1"), ...intent.document });
+    expect(await db.collection(name).findOne({})).toEqual({ _id: 1, ...intent.document });
     const { id_evento: _, ...document } = intent.document;
     expect(await store.insertOnce({ deduplicationKey: "compliance-1", document })).toBe(true);
     expect(await db.collection(name).findOne({ id_evento: { $exists: false } }))
-      .toEqual({ _id: await notificationId("compliance-1"), ...document });
+      .toEqual({ _id: 2, ...document });
   }, 30000);
 
   it("deduplica gravações concorrentes e separa etapas mesmo com mensagens iguais", async () => {
@@ -73,26 +80,43 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
     expect(await notifications.countDocuments()).toBe(2);
   }, 30000);
 
-  it("permite repetir após falha de escrita sem deixar reservas ou controles", async () => {
+  it("retoma a reserva após falha de escrita sem alterar o conteúdo nem trocar o ID", async () => {
     await db.collection(name).createIndex({ mensagem: 1 }, { unique: true });
     expect(await store.insertOnce(intent)).toBe(true);
     const second = { ...intent, deduplicationKey: "retry-key" };
     await expect(store.insertOnce(second)).rejects.toMatchObject({ code: 11000 });
     expect(await db.collection(name).countDocuments()).toBe(1);
-    expect(await store.insertOnce({ ...second, document: { ...second.document, mensagem: "Outra mensagem" } })).toBe(true);
-    expect((await db.collection(name).findOne({ mensagem: "Outra mensagem" }))?._id).toBe(await notificationId("retry-key"));
+    expect(ledgerState.ledger.get("retry-key")?.state).toBe("pending");
+    await db.collection(name).dropIndex("mensagem_1");
+    expect(await store.insertOnce(second)).toBe(true);
+    expect(await db.collection<{ _id: number }>(name).findOne({ _id: 2 })).not.toBeNull();
   }, 30000);
 
-  it("recusa colisão com outro conteúdo e permite recriar após exclusão do aviso", async () => {
-    const id = await notificationId(intent.deduplicationKey);
+  it("recusa colisão com outro conteúdo e impede recriar uma entrega confirmada após exclusão", async () => {
+    const id = 1;
+    ledgerState.ledger.initialize(0);
+
+    // Colisão é testada no escritor; a entrega pendente mantém a reserva.
     const notifications = db.collection<{ _id: number } & Record<string, unknown>>(name);
     const other = { _id: id, ...intent.document, id_usuario: 99 };
     await notifications.insertOne(other);
-    await expect(store.insertOnce(intent)).rejects.toMatchObject({ code: "NOTIFICATION_ID_COLLISION" });
+    const writer = collectionWriter(db, async () => {}, name);
+    await expect(writer.write(id, intent.document)).rejects.toMatchObject({ code: "NOTIFICATION_ID_COLLISION" });
     expect(await notifications.findOne({ _id: id })).toEqual(other);
     await notifications.deleteOne({ _id: id });
     expect(await store.insertOnce(intent)).toBe(true);
     await notifications.deleteOne({ _id: id });
-    expect(await store.insertOnce(intent)).toBe(true);
+    expect(await store.insertOnce(intent)).toBe(false);
+  }, 30000);
+
+  it("preserva IDs calculados pela versão anterior e memoriza a confirmação", async () => {
+    const id = await notificationId(intent.deduplicationKey);
+    const notifications = db.collection<{ _id: number } & Record<string, unknown>>(name);
+    await notifications.insertOne({ _id: id, ...intent.document });
+    expect(await store.insertOnce(intent)).toBe(false);
+    expect(ledgerState.ledger.get(intent.deduplicationKey)).toMatchObject({ id, state: "confirmed" });
+    await notifications.deleteOne({ _id: id });
+    expect(await store.insertOnce(intent)).toBe(false);
+    expect(await notifications.countDocuments()).toBe(0);
   }, 30000);
 });

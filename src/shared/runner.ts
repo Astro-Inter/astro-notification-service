@@ -1,6 +1,6 @@
 import { booleanSetting, dateInSaoPaulo, positiveId, settingsFromEnv } from "./config";
 import { ServiceError } from "./errors";
-import { openNotificationStore } from "./mongo";
+import { openNotificationStore } from "./control-store";
 import { notificationFor } from "./notifications";
 import { logEvent } from "./telemetry";
 import { openCandidateSource } from "./postgres";
