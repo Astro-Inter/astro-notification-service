@@ -56,19 +56,19 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
         values: [after, context.today, settings.batchSize] };
     case "class-deadlines":
       return {
-        text: `SELECT tf.id_turma_funcionario::text AS cursor, un.workspace_id::text AS workspace_id,
-          u.id_usuario::text AS usuario_id, tf.id_turma_funcionario::text AS recurso_id,
+        text: `SELECT tf.id_turma_colaborador::text AS cursor, un.workspace_id::text AS workspace_id,
+          u.id_usuario::text AS usuario_id, tf.id_turma_colaborador::text AS recurso_id,
           to_char(t.data_termino, 'YYYY-MM-DD HH24:MI:SS') AS referencia, e.titulo AS titulo_evento,
           e.id_evento::text AS evento_id
-        FROM public.turma_funcionario tf ${participationJoins}
-        LEFT JOIN public.conclusao_evento ce ON ce.turma_funcionario_id = tf.id_turma_funcionario
-        WHERE tf.id_turma_funcionario > $1::bigint ${participationEligibility}
+        FROM public.turma_colaborador tf ${participationJoins}
+        LEFT JOIN public.conclusao_evento ce ON ce.turma_colaborador_id = tf.id_turma_colaborador
+        WHERE tf.id_turma_colaborador > $1::bigint ${participationEligibility}
           AND e.status = 'ATIVO'
           AND t.data_termino >= ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo')
           AND t.data_termino <= ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo') + ($3::integer * interval '1 hour')
           AND (ce.id_conclusao_evento IS NULL OR ce.status = 'REJEITADO'
             OR (ce.status = 'PENDENTE' AND ce.data_conclusao IS NULL))
-        ORDER BY tf.id_turma_funcionario LIMIT $4::integer`,
+        ORDER BY tf.id_turma_colaborador LIMIT $4::integer`,
         values: [after, context.now.toISOString(), settings.classWarningHours, settings.batchSize],
       };
     case "pending-validations":
@@ -78,7 +78,7 @@ export function candidateQuery(rule: RuleId, context: RuleContext, after: string
           to_char(ce.data_conclusao, 'YYYY-MM-DD HH24:MI:SS') AS referencia, e.titulo AS titulo_evento,
           e.id_evento::text AS evento_id
         FROM public.conclusao_evento ce
-        JOIN public.turma_funcionario tf ON tf.id_turma_funcionario = ce.turma_funcionario_id
+        JOIN public.turma_colaborador tf ON tf.id_turma_colaborador = ce.turma_colaborador_id
         ${participationJoins}
         WHERE ce.id_conclusao_evento > $1::bigint ${participationEligibility}
           AND e.status <> 'CANCELADO'
