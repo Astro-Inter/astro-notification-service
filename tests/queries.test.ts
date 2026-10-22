@@ -21,7 +21,7 @@ beforeAll(async () => {
 }, 30000);
 afterAll(async () => { await db?.close(); });
 beforeEach(async () => {
-  await db.exec(`TRUNCATE conclusao_evento, turma_funcionario, turma, evento, conformidade, usuario, cargo, unidade, nr_catalogo;
+  await db.exec(`TRUNCATE conclusao_evento, turma_colaborador, turma, evento, conformidade, usuario, cargo, unidade, nr_catalogo;
     INSERT INTO unidade VALUES (1,1,true),(2,2,true),(3,1,false);
     INSERT INTO cargo VALUES (1,1,true),(2,2,true),(3,1,false);
     INSERT INTO usuario VALUES (2,1,1,'COLABORADOR','ATIVO'),(3,1,1,'GESTOR','ATIVO'),
@@ -64,7 +64,7 @@ describe("consultas executadas em PostgreSQL (PGlite)", () => {
     expect((await candidates("expiring-compliance"))[0]?.cursor).toBe("3");
   });
   it("avisa participação pendente e rejeitada, sem cobrar quem já enviou para análise", async () => {
-    await db.exec(`INSERT INTO turma_funcionario VALUES (1,1,2),(2,1,3),(3,1,2);
+    await db.exec(`INSERT INTO turma_colaborador VALUES (1,1,2),(2,1,3),(3,1,2);
       INSERT INTO conclusao_evento VALUES
       (1,2,'PENDENTE','2026-10-15 10:00:00',NULL),
       (2,3,'REJEITADO','2026-10-14 10:00:00','2026-10-15 10:00:00');`);
@@ -74,18 +74,18 @@ describe("consultas executadas em PostgreSQL (PGlite)", () => {
     expect(await candidates("class-deadlines", "3")).toEqual([]);
   });
   it("exclui eventos cancelados, outros workspaces e prazos encerrados", async () => {
-    await db.exec(`INSERT INTO turma_funcionario VALUES (1,2,2),(2,3,2),(3,4,2),(4,1,4),(5,1,6);
+    await db.exec(`INSERT INTO turma_colaborador VALUES (1,2,2),(2,3,2),(3,4,2),(4,1,4),(5,1,6);
       UPDATE turma SET data_termino='2026-10-15 11:59:59' WHERE id_turma=1;`);
     expect(await candidates("class-deadlines")).toEqual([]);
   });
   it("usa o horário de São Paulo e o limite de antecedência exato", async () => {
-    await db.exec(`INSERT INTO turma_funcionario VALUES (1,1,2);`);
+    await db.exec(`INSERT INTO turma_colaborador VALUES (1,1,2);`);
     expect((await candidates("class-deadlines")).length).toBe(1);
     await db.exec(`UPDATE turma SET data_termino='2026-10-16 12:00:01' WHERE id_turma=1;`);
     expect(await candidates("class-deadlines")).toEqual([]);
   });
   it("encaminha ao gestor responsável apenas envios antigos ainda sem validação", async () => {
-    await db.exec(`INSERT INTO turma_funcionario VALUES (1,1,2),(2,1,2),(3,2,2),(4,3,2),(5,4,2);
+    await db.exec(`INSERT INTO turma_colaborador VALUES (1,1,2),(2,1,2),(3,2,2),(4,3,2),(5,4,2);
       INSERT INTO conclusao_evento VALUES
       (1,1,'PENDENTE','2026-10-13 12:00:00',NULL),
       (2,2,'PENDENTE','2026-10-13 12:00:01',NULL),

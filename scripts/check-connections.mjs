@@ -14,8 +14,8 @@ const expected = {
   conformidade: ["id_conformidade", "usuario_id", "nr_id", "aplicavel", "data_validade"],
   evento: ["id_evento", "gestor_id", "titulo", "status"],
   turma: ["id_turma", "evento_id", "data_termino"],
-  turma_funcionario: ["id_turma_funcionario", "turma_id", "usuario_id"],
-  conclusao_evento: ["id_conclusao_evento", "turma_funcionario_id", "status", "data_conclusao", "data_validacao"],
+  turma_colaborador: ["id_turma_colaborador", "turma_id", "usuario_id"],
+  conclusao_evento: ["id_conclusao_evento", "turma_colaborador_id", "status", "data_conclusao", "data_validacao"],
 };
 
 let failed = false;
