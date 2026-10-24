@@ -38,12 +38,28 @@ O estado desativado do processamento de resumos foi preservado.
 | `pending-validations` | `astro-notification-pending-validations` | Conclusões aguardando avaliação do gestor | Diariamente, 08h em São Paulo |
 | `missing-compliance` | `astro-notification-missing-compliance` | Obrigações sem conformidade registrada | Sem agenda; aplicabilidade pendente |
 | `delivery-control` | `astro-notification-delivery-control` | Reservar IDs, gravar avisos e confirmar entregas | Chamadas internas das regras; sem Cron |
+| `pending-events-push` | `astro-notification-pending-events-push` | Lembrete genérico Android para colaboradores e gestores com eventos pendentes | Checagem a cada 72h; retomadas de falhas no gatilho horário existente |
+
+### Push Android de eventos pendentes — SCRUM-617
+
+O único push é “**Você tem eventos pendentes. Abra o Astro para conferir.**”, com
+título “Eventos pendentes”. O gestor recebe também por pendências da equipe e
+validações dos eventos sob sua responsabilidade. Não há filtro de proximidade
+do prazo nem espera de 48h. As outras notificações persistidas no Mongo continuam
+independentes e não são encaminhadas automaticamente ao Firebase.
+
+O mobile registra dispositivos diretamente no Firestore. O novo Worker consulta
+os UIDs elegíveis no PostgreSQL e envia FCM HTTP v1 por dispositivo, com ciclo
+persistente de 72h e controle de repetição. Não há um novo Cron nem API pública
+de cadastro de tokens. Consulte [a documentação completa](docs/push-firebase.md)
+para contrato, credenciais, regras, limites, retomadas e validação no aparelho.
 
 ### Disparador compartilhado
 
-O `astro-shared-scheduler` possui a única agenda deste conjunto de sete Workers.
+O `astro-shared-scheduler` possui a única agenda deste conjunto de oito Workers.
 O binding `SUMMARY` aponta para o entrypoint `ScheduledJob` do serviço de resumos;
 `CLASSES`, `EXPIRING`, `EXPIRED` e `VALIDATIONS` apontam para `RuleJob` de cada regra.
+`PUSH` aponta para `PendingPushJob`, que controla a cadência de 72h em SQLite.
 O disparador não acessa bancos nem recebe credenciais deles.
 
 As chamadas usam Service Bindings RPC e aguardam a execução do método `run()` de
@@ -51,7 +67,7 @@ cada destino. Não há endpoint HTTP público de processamento. `Promise.allSett
 garante que uma falha não suprima os outros disparos; o resultado geral ainda
 registra a falha e a propaga ao runtime. Cada serviço respeita sua habilitação.
 
-Resumos e turmas são chamados a cada hora. As outras três regras entram na mesma
+Resumos, turmas e o controle de push são chamados a cada hora. As outras três regras entram na mesma
 execução quando o horário **original do evento agendado** está na hora UTC definida
 em `DAILY_HOUR_UTC`, inicialmente 11h UTC (08h de São Paulo). Uma execução atrasada
 usa o horário do evento, e não o relógio de início do handler, para selecionar tarefas.
@@ -361,7 +377,7 @@ npm run deploy -- expiring-compliance
 ```
 
 Sem identificador, `build` e `deploy` processam primeiro o controle, depois os cinco
-Workers de regras e por último o disparador. `secrets:upload` processa somente
+Workers de regras, o lembrete push e por último o disparador. `secrets:upload` processa somente
 `delivery-control`; as regras não precisam de secrets do MongoDB.
 O envio de secrets lê o `.env` e transfere somente os dois campos
 do MongoDB pela entrada padrão, sem colocar os valores na linha de comando.
@@ -378,7 +394,7 @@ Na migração do agendamento:
 2. Publicar o [serviço de resumos](https://github.com/Astro-Inter/astro-session-summary-service)
    com `src/entrypoint.ts`, `ScheduledJob` e `triggers.crons=[]`, preservando `ENABLED`.
 3. Publicar o disparador por último: `npm run deploy -- scheduler`.
-4. Conferir os cinco Service Bindings, o Cron `0 * * * *` do disparador e a ausência
+4. Conferir os seis Service Bindings, o Cron `0 * * * *` do disparador e a ausência
    de Cron no serviço de resumos e nos Workers de regras.
 
 Não adicionar agendas individuais às regras. Para rollback da agenda, remover
@@ -413,7 +429,7 @@ sem esse controle pode reenviar avisos ou disputar IDs já reservados.
 - Runtime: os cinco Workers de regras iniciam no workerd, recebem eventos e chamadas
   RPC desabilitados sem credenciais; o disparador seleciona e chama os destinos corretos.
 - Controle: SQLite real, reserva durável, confirmação, importação e recuperação de falhas.
-- CI: tipagem, testes, runtime e build dos sete bundles a cada alteração.
+- CI: tipagem, testes, runtime e build dos oito bundles a cada alteração.
 
 Os logs estruturados incluem `rule`, `runId`, duração, quantidade de candidatos,
 inserções, duplicatas e lotes. Falhas usam `execution_failed` e código sanitizado,
@@ -423,7 +439,17 @@ execuções no painel e reexecute após corrigir a causa.
 
 ### Logs no Grafana Cloud
 
-As cinco regras, o controle persistente e o disparador enviam logs operacionais por OTLP/HTTP JSON.
+Em produção, os oito Workers estão configurados para encaminhar o console
+estruturado ao destino nativo `astro-grafana-logs`, com amostragem integral e
+`persist=false` no Cloudflare. O push registra `push_finished` ou `push_failed`,
+com contagens e códigos sanitizados, sem UID, token ou texto da mensagem. A
+configuração do destino e suas credenciais são administradas na conta Cloudflare.
+Esse caminho não exige secrets Grafana em cada Worker e não confirma, por si só,
+uma consulta de leitura no painel de destino.
+
+O serviço também oferece exportação direta opcional por OTLP/HTTP JSON. As
+instruções abaixo descrevem essa alternativa; habilitá-la junto com o destino
+nativo pode duplicar registros no Grafana.
 Cada execução guarda um lote isolado em `AsyncLocalStorage` e aguarda o envio no
 fim, tanto em sucesso quanto em falha. O mesmo mecanismo cobre Cron, RPC e preview.
 Os contextos de execuções concorrentes não compartilham registros. As rotas HTTP
@@ -439,7 +465,7 @@ Não são enviados dados dos destinatários, mensagens das notificações, consu
 URIs dos bancos, credenciais ou objetos de exceção.
 
 Para configurar, preencha os dois campos `GRAFANA_OTLP_*` no `.env` ignorado e
-envie somente esses secrets aos sete Workers:
+envie somente esses secrets aos oito Workers:
 
 ```sh
 npm run secrets:grafana
@@ -470,8 +496,9 @@ O envio mantém os últimos 32 registros por execução, usa timeout de cinco se
 e não segue redirects. Há um POST por execução com registros e configuração
 completa. Sem configuração, o serviço mantém apenas o console do Cloudflare.
 Uma falha de exportação não altera as notificações nem substitui o erro original.
-Este envio não possui fila durável nem retentativa persistente; uma indisponibilidade
-do Grafana pode causar perda do lote externo, preservando os logs no Cloudflare.
+Este envio direto não possui fila durável nem retentativa persistente; uma indisponibilidade
+do Grafana pode causar perda do lote externo. A retenção no Cloudflare depende
+da opção `persist`; atualmente ela está desativada em produção.
 
 O console informa `telemetry_export_succeeded` quando o gateway aceita o lote,
 `telemetry_export_failed` para status HTTP de erro, `telemetry_export_partial`
