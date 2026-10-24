@@ -156,8 +156,35 @@ Paulo)**. Os logs `push_finished` foram observados no runtime e o destino nativo
 `astro-grafana-logs` está configurado; não foi feita consulta de leitura no Grafana.
 
 O FCM respondeu à validação de esquema/autorização com `validate_only`, usando
-um token fictício. O recebimento real permanece dependente de instalar o Android
-atualizado, autenticar, permitir notificações e confirmar seu registro no Firestore.
+um token fictício. Essa checagem inicial foi complementada pelo teste físico abaixo.
+
+### Teste em aparelho físico em 24/10/2026
+
+O APK foi instalado por USB em um Samsung Galaxy M31 com Android 12/API 31,
+preservando os dados e a sessão. Foi necessário reduzir `minSdk` para 31 e
+solicitar `POST_NOTIFICATIONS` somente no Android 13 ou superior. O aplicativo
+confirmou o cadastro do dispositivo no Firestore com timestamp do servidor.
+
+Uma rechecagem explícita da conta autenticada encontrou pendências existentes.
+O Worker concluiu com um destinatário, uma inserção Mongo, um envio aceito pelo
+FCM e nenhuma falha. O Android apresentou o aviso e persistiu o ciclo; o
+recebimento também foi confirmado pelo usuário. Não foi necessário criar eventos
+nem alterar pendências ou outros dados de negócio para provocar o teste.
+
+A repetição da mesma conta/ciclo concluiu com `inserted=0`, `sent=0` e
+`duplicates=1`, preservando o agendamento e deixando zero destinatários pendentes.
+O CI também aprovou os ajustes de compatibilidade e a rechecagem.
+
+Para conferir a identidade visual, foi enviado um push controlado somente ao
+dispositivo conectado, com um ciclo de teste dentro do intervalo anterior ao
+próximo ciclo real. Esse aviso reutilizou o recibo existente, não gravou outro
+documento no Mongo e não alterou o agendamento. O Android registrou seu ciclo.
+O ícone pequeno é uma máscara monocromática do planeta; a imagem maior usa
+`astro_app_icon` já existente no mobile e a cor roxa da marca.
+
+Esse teste não cobre dois aparelhos, logout offline, todas as restrições de
+bateria dos fabricantes ou todos os fluxos de navegação; o roteiro completo
+continua descrito acima e no README mobile.
 
 Referências: [FCM Android](https://firebase.google.com/docs/cloud-messaging/android/get-started),
 [FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/send/v1-api),
