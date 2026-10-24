@@ -20,6 +20,15 @@ function fixture() {
   return { ledger, source, dependencies, env, user, reopen: () => new PushLedger(sql.storage), run: (at = start) => runPendingPush(env, ledger, at, dependencies) };
 }
 describe("somente lembrete genérico de eventos pendentes a cada 72 horas", () => {
+  it("rechecagem operacional preserva o ciclo e os dispositivos já entregues", async () => {
+    const f = fixture(); await f.run();
+    expect(f.ledger.recheck(f.user)).toBe(true);
+    expect(f.ledger.status()).toMatchObject({ cycle: start, pendingRecipients: 1 });
+    expect((await f.run()).sent).toBe(0);
+    expect(f.dependencies.gateway.send).toHaveBeenCalledTimes(1);
+    expect(f.ledger.recheck({ ...f.user, uid: "another-identity" })).toBe(false);
+    expect(f.ledger.status()).toMatchObject({ cycle: start, pendingRecipients: 0 });
+  });
   it("continua após atingir orçamento externo sem perder destinatários nem repetir os concluídos", async () => {
     const f = fixture();
     const second = { user_id: "3", uid: "second-user" };

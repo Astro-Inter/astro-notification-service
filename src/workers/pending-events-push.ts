@@ -5,6 +5,7 @@ import { openPushSource, runPendingPush, type PushEnv } from "../push/runner";
 import { booleanSetting } from "../shared/config";
 import { logEvent, withTelemetry } from "../shared/telemetry";
 import { safeErrorCode } from "../shared/errors";
+import type { Recipient } from "../push/ledger";
 
 interface WorkerEnv extends PushEnv { PUSHES: DurableObjectNamespace<PendingPushCoordinator> }
 export class PendingPushCoordinator extends DurableObject<WorkerEnv> {
@@ -32,11 +33,38 @@ export class PendingPushCoordinator extends DurableObject<WorkerEnv> {
     return result;
   }
   status() { return { enabled: booleanSetting(this.env.ENABLED, false), dryRun: booleanSetting(this.env.DRY_RUN, true), ...this.ledger.status() }; }
+  recheck(recipient: Recipient) {
+    const result = this.queue.then(async () => {
+      if (!booleanSetting(this.env.ENABLED, false) || booleanSetting(this.env.DRY_RUN, true)) return { status: "skipped", reason: "disabled" };
+      const queued = this.ledger.recheck(recipient);
+      await this.ctx.storage.sync();
+      return { status: queued ? "queued" : "skipped", ...(!queued ? { reason: "cycle_or_identity_changed" } : {}) };
+    });
+    this.queue = result.then(() => {}, () => {});
+    return result;
+  }
 }
 export class PendingPushJob extends WorkerEntrypoint<WorkerEnv> {
   private actor() { return this.env.PUSHES.get(this.env.PUSHES.idFromName(`${this.env.APP_ENV ?? "production"}:pending-events:v1`)); }
   run(time = Date.now()) { return this.actor().run(time); }
   status() { return this.actor().status(); }
+  async recheck(uid: string) {
+    if (!booleanSetting(this.env.ENABLED, false) || booleanSetting(this.env.DRY_RUN, true)) return { status: "skipped", reason: "disabled" };
+    if (typeof uid !== "string" || uid.length < 1 || uid.length > 128) throw new Error("UID inválido");
+    const source = await openPushSource(this.env);
+    const matches: Recipient[] = [];
+    let after = "0";
+    try {
+      for (let page = 0; page < 100; page++) {
+        const rows = await source.page(after);
+        matches.push(...rows.filter(row => row.uid === uid));
+        if (matches.length > 1) return { status: "skipped", reason: "ambiguous_identity" };
+        if (rows.length < 100) return matches.length ? this.actor().recheck(matches[0]!) : { status: "skipped", reason: "not_eligible" };
+        after = rows.at(-1)!.user_id;
+      }
+      throw new Error("Limite de lotes da rechecagem atingido");
+    } finally { await source.close(); }
+  }
   async preview() {
     const source = await openPushSource(this.env);
     let candidates = 0; let after = "0";

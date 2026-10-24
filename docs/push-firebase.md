@@ -114,6 +114,14 @@ cache SharedPreferences com heartbeat, permissão Android, proteção de logout 
 filtro por UID/ciclo. Sem o aplicativo atualizado e um token cadastrado, não há
 dispositivo para receber o lembrete.
 
+O entrypoint interno `PendingPushJob.recheck(firebaseUid)` permite uma rechecagem
+operacional explícita de uma única conta elegível no ciclo atual, por exemplo
+depois de registrar um aparelho de teste. Não possui rota HTTP pública. A chamada
+consulta novamente as pendências, recusa identidade ambígua ou alterada, preserva
+a agenda e não apaga dispositivos aceitos nem seu backoff. Em seguida, `run()`
+processa os destinatários pendentes. Isso não habilita envio automático no momento
+do cadastro nem ignora a deduplicação do ciclo.
+
 ## Validação
 
 - SQL executado em PGlite: múltiplas turmas, gestor/equipe, envio em análise,

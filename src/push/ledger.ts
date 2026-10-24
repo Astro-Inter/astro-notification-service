@@ -25,6 +25,14 @@ export class PushLedger {
     return this.storage.sql.exec<Recipient>("SELECT user_id, uid FROM push_recipients WHERE cycle = ? AND done = 0 ORDER BY CAST(user_id AS INTEGER) LIMIT 1000", cycle).toArray();
   }
   done(cycle: number, user: string) { this.storage.sql.exec("UPDATE push_recipients SET done = 1 WHERE cycle = ? AND user_id = ?", cycle, user); }
+  recheck(recipient: Recipient): boolean {
+    const cycle = this.status().cycle;
+    if (cycle === null) return false;
+    // Ação operacional explícita: não avançar o ciclo nem apagar entregas aceitas.
+    return this.storage.sql.exec<{ user_id: string }>(`INSERT INTO push_recipients VALUES (?,?,?,0)
+      ON CONFLICT(cycle,user_id) DO UPDATE SET done=0 WHERE push_recipients.uid=excluded.uid
+      RETURNING user_id`, cycle, recipient.user_id, recipient.uid).toArray().length === 1;
+  }
   attempt(cycle: number, user: string, device: string, now: number): boolean {
     const row = this.storage.sql.exec<{ state: string; attempts: number; retry_at: number }>(
       "SELECT * FROM push_devices WHERE cycle = ? AND user_id = ? AND device = ?", cycle, user, device).toArray()[0];
