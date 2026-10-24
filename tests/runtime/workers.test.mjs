@@ -23,7 +23,8 @@ configs.push({ config: control });
 const push = JSON.parse(readFileSync("workers/pending-events-push/wrangler.jsonc", "utf8"));
 delete push.account_id; delete push.$schema; delete push.hyperdrive;
 push.main = resolve("src/workers/pending-events-push.ts");
-configs.push({ config: push });
+push.vars = { ...push.vars, ENABLED: "false", DRY_RUN: "true" };
+configs.push({ config: push, secrets: { FIREBASE_PROJECT_ID: "", FIREBASE_CREDENTIALS_BASE64: "" } });
 configs.push({ config: { name: "control-fixture", main: resolve("tests/runtime/control-fixture.ts"),
   compatibility_date: "2026-10-18", compatibility_flags: ["nodejs_compat"],
   durable_objects: { bindings: [{ name: "FIXTURE", class_name: "ControlFixture" }] },
