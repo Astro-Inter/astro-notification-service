@@ -17,7 +17,9 @@ export function pendingRecipientsQuery(after: string, limit: number, userId?: st
           JOIN public.turma t ON t.id_turma = tf.turma_id
           JOIN public.evento e ON e.id_evento = t.evento_id
           JOIN public.usuario gestor ON gestor.id_usuario = e.gestor_id AND gestor.status = 'ATIVO'
+            AND gestor.tipo IN ('GESTOR', 'GESTOR_WORKSPACE')
           JOIN public.unidade ug ON ug.id_unidade = gestor.unidade_id AND ug.workspace_id = un.workspace_id AND ug.ativo IS TRUE
+          JOIN public.cargo cg ON cg.id_cargo = gestor.cargo_id AND cg.workspace_id = ug.workspace_id AND cg.ativo IS TRUE
           LEFT JOIN public.conclusao_evento ce ON ce.turma_colaborador_id = tf.id_turma_colaborador
           WHERE tf.usuario_id = u.id_usuario AND e.status = 'ATIVO'
             AND (ce.id_conclusao_evento IS NULL OR ce.status = 'REJEITADO'

@@ -47,3 +47,9 @@ it("rejeição é pendência; envio para validação não exige esperar 48h", as
     INSERT INTO conclusao_evento VALUES (1,1,'REJEITADO','2026-10-24','2026-10-24')`);
   expect(await recipients()).toEqual(["2", "3"]);
 });
+it("não usa evento cujo responsável perdeu o perfil ou possui cargo inativo", async () => {
+  await db.exec("INSERT INTO turma_colaborador VALUES (1,1,2); UPDATE usuario SET tipo='COLABORADOR' WHERE id_usuario=3");
+  expect(await recipients()).toEqual([]);
+  await db.exec("UPDATE usuario SET tipo='GESTOR' WHERE id_usuario=3; INSERT INTO cargo VALUES (3,1,false); UPDATE usuario SET cargo_id=3 WHERE id_usuario=3");
+  expect(await recipients()).toEqual([]);
+});
