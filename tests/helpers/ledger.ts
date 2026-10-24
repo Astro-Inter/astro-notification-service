@@ -16,5 +16,5 @@ export function sqliteLedger() {
       catch (error) { database.exec("ROLLBACK"); throw error; }
     },
   } as unknown as Pick<DurableObjectStorage, "sql" | "transactionSync">;
-  return { ledger: new DeliveryLedger(storage), reopen: () => new DeliveryLedger(storage), close: () => database.close() };
+  return { storage, ledger: new DeliveryLedger(storage), reopen: () => new DeliveryLedger(storage), close: () => database.close() };
 }

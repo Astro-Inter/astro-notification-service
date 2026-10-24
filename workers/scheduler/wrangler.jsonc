@@ -22,6 +22,7 @@
   "triggers": { "crons": ["0 * * * *"] },
   "vars": { "APP_ENV": "production", "ENABLED": "true", "DAILY_HOUR_UTC": "11" },
   "services": [
+    { "binding": "PUSH", "service": "astro-notification-pending-events-push", "entrypoint": "PendingPushJob" },
     { "binding": "SUMMARY", "service": "astro-session-summary-service", "entrypoint": "ScheduledJob" },
     { "binding": "CLASSES", "service": "astro-notification-class-deadlines", "entrypoint": "RuleJob" },
     { "binding": "EXPIRING", "service": "astro-notification-expiring-compliance", "entrypoint": "RuleJob" },

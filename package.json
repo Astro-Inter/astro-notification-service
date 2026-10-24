@@ -17,6 +17,7 @@
     "credentials:import": "node scripts/import-credentials.mjs",
     "secrets:upload": "node scripts/secrets.mjs",
     "secrets:grafana": "node scripts/grafana-secrets.mjs",
+    "secrets:firebase": "node scripts/firebase-secrets.mjs",
     "connections:check": "node scripts/check-connections.mjs"
   },
   "dependencies": {

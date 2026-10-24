@@ -27,11 +27,14 @@ export class NotificationCoordinator extends DurableObject<ControlEnv> {
   }
   protected openWriter(): Promise<NotificationWriter> { return openNotificationWriter(this.env); }
   deliver(intent: NotificationIntent): Promise<boolean> {
+    return this.deliverWithReceipt(intent).then(receipt => receipt.inserted);
+  }
+  deliverWithReceipt(intent: NotificationIntent): Promise<{ inserted: boolean; id: number | null }> {
     return this.serialize(() => withTelemetry(this.env, "astro-notification-delivery-control", { runId: crypto.randomUUID() }, async () => {
       try {
         const inserted = await deliverNotification(intent, this.ledger, () => this.openWriter(), () => this.ctx.storage.sync());
         logEvent("info", { event: "delivery_finished", status: "completed", inserted: inserted ? 1 : 0, duplicates: inserted ? 0 : 1 });
-        return inserted;
+        return { inserted, id: this.ledger.get(intent.deduplicationKey)?.id ?? null };
       } catch (error) {
         logEvent("error", { event: "delivery_failed", code: safeErrorCode(error) });
         throw new Error(`Falha no controle de entrega: ${safeErrorCode(error)}`);
@@ -59,6 +62,7 @@ export class NotificationCoordinator extends DurableObject<ControlEnv> {
 export class DeliveryControl extends WorkerEntrypoint<ControlEnv> {
   private coordinator() { return this.env.DELIVERIES.get(this.env.DELIVERIES.idFromName(`${this.env.APP_ENV ?? "production"}:notificacoes:v1`)); }
   deliver(intent: NotificationIntent) { return this.coordinator().deliver(intent); }
+  deliverWithReceipt(intent: NotificationIntent) { return this.coordinator().deliverWithReceipt(intent); }
   importConfirmed(receipts: Receipt[]) { return this.coordinator().importConfirmed(receipts); }
   initialize() { return this.coordinator().initialize(); }
   status() { return this.coordinator().status(); }
