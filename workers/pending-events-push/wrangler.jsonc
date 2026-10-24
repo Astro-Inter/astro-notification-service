@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "astro-notification-pending-events-push",
+  "account_id": "25eb8d3849be3adbff3678f4ec781804",
+  "main": "../../src/workers/pending-events-push.ts",
+  "compatibility_date": "2026-10-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false, "head_sampling_rate": 1, "persist": false, "destinations": ["astro-grafana-logs"] }
+  },
+  "vars": { "APP_ENV": "production", "ENABLED": "false", "DRY_RUN": "true" },
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "c561f75615114c0b9358bc5c35159b7d" }],
+  "services": [{ "binding": "PUSH_CONTROL", "service": "astro-notification-delivery-control", "entrypoint": "DeliveryControl" }],
+  "durable_objects": { "bindings": [{ "name": "PUSHES", "class_name": "PendingPushCoordinator" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PendingPushCoordinator"] }]
+}

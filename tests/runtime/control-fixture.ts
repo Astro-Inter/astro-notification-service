@@ -32,10 +32,10 @@ export default {
     const route = new URL(request.url).pathname;
     try {
       if (route === "/initialize") return Response.json(await object.initialize());
-      if (route === "/deliver") {
+      if (route === "/deliver" || route === "/receipt") {
         const body = await request.json() as NotificationIntent;
         body.document.data_criacao = new Date(body.document.data_criacao);
-        return Response.json({ inserted: await object.deliver(body) });
+        return Response.json(route === "/receipt" ? await object.deliverWithReceipt(body) : { inserted: await object.deliver(body) });
       }
       if (route === "/clear") { await object.clearFixtures(); return Response.json({ ok: true }); }
       if (route === "/fail") { await object.failAfterWrite(); return Response.json({ ok: true }); }

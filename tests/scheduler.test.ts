@@ -9,9 +9,9 @@ function fixture() {
 
 describe("disparador compartilhado", () => {
   it("mantém resumos e turmas horários e concentra as regras diárias às 08h de São Paulo", () => {
-    expect(dueJobs(new Date("2026-10-16T10:00:00Z"))).toEqual(["SUMMARY", "CLASSES"]);
+    expect(dueJobs(new Date("2026-10-16T10:00:00Z"))).toEqual(["SUMMARY", "CLASSES", "PUSH"]);
     expect(dueJobs(new Date("2026-10-16T11:00:00Z"))).toEqual(bindings);
-    expect(dueJobs(new Date("2026-10-17T00:00:00Z"))).toEqual(["SUMMARY", "CLASSES"]);
+    expect(dueJobs(new Date("2026-10-17T00:00:00Z"))).toEqual(["SUMMARY", "CLASSES", "PUSH"]);
   });
   it("recusa horários inválidos antes de disparar Workers", () => {
     expect(() => dueJobs(new Date("invalid"))).toThrow();

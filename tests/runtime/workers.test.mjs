@@ -20,6 +20,10 @@ delete control.account_id;
 delete control.$schema;
 control.main = resolve("src/workers/delivery-control.ts");
 configs.push({ config: control });
+const push = JSON.parse(readFileSync("workers/pending-events-push/wrangler.jsonc", "utf8"));
+delete push.account_id; delete push.$schema; delete push.hyperdrive;
+push.main = resolve("src/workers/pending-events-push.ts");
+configs.push({ config: push });
 configs.push({ config: { name: "control-fixture", main: resolve("tests/runtime/control-fixture.ts"),
   compatibility_date: "2026-10-18", compatibility_flags: ["nodejs_compat"],
   durable_objects: { bindings: [{ name: "FIXTURE", class_name: "ControlFixture" }] },
@@ -62,17 +66,17 @@ for (const rule of workers) {
   });
 }
 
-test("disparador chama cinco serviços no horário diário e somente dois nas outras horas", async () => {
+test("disparador preserva análises diárias e inclui o serviço push no gatilho horário", async () => {
   const probe = server.getWorker("rpc-probe");
   const response = await probe.fetch(`https://example.com/SCHEDULER/run?time=${Date.parse("2026-10-16T11:00:00Z")}`);
   const result = await response.json();
   assert.equal(result.status, "completed");
-  assert.deepEqual(result.outcomes.map(outcome => outcome.job), ["SUMMARY", "CLASSES", "EXPIRING", "EXPIRED", "VALIDATIONS"]);
+  assert.deepEqual(result.outcomes.map(outcome => outcome.job), ["SUMMARY", "CLASSES", "EXPIRING", "EXPIRED", "VALIDATIONS", "PUSH"]);
   assert.ok(result.outcomes.every(outcome => outcome.status === "fulfilled" && outcome.jobStatus === "skipped"));
   const hourly = await probe.fetch(`https://example.com/SCHEDULER/run?time=${Date.parse("2026-10-16T12:00:00Z")}`);
-  assert.equal((await hourly.json()).outcomes.length, 2);
+  assert.equal((await hourly.json()).outcomes.length, 3);
   const inspected = await probe.fetch("https://example.com/SCHEDULER/inspect");
-  assert.equal((await inspected.json()).length, 5);
+  assert.equal((await inspected.json()).length, 6);
 });
 
 test("controle persistente coordena concorrência, reinício, exclusão e falha após gravar", async () => {
@@ -87,6 +91,8 @@ test("controle persistente coordena concorrência, reinício, exclusão e falha 
   const concurrent = await Promise.all(Array.from({ length: 6 }, () => deliver(intent)));
   assert.equal(concurrent.filter(result => result.inserted).length, 1);
   assert.ok(concurrent.every(result => result.status === 200));
+  const receipt = await fixture.fetch("https://example.com/receipt", { method: "POST", body: JSON.stringify(intent) });
+  assert.deepEqual(await receipt.json(), { inserted: false, id: 1 });
   await fixture.fetch("https://example.com/clear");
   await fixture.fetch("https://example.com/restart");
   assert.equal((await deliver(intent)).inserted, false);

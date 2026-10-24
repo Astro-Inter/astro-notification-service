@@ -77,7 +77,7 @@ export class FirebaseGateway {
     const response = await this.call(`https://fcm.googleapis.com/v1/projects/${this.project()}/messages:send`, {
       method: "POST", body: JSON.stringify({ message: { token: device.token,
         data: { type: "pending_events", uid, cycle_id: String(cycle), notification_id: String(id), title: PUSH_TITLE, body: PUSH_BODY },
-        android: { priority: "HIGH", ttl: "86400s", collapse_key: "astro_pending_events" } } }),
+        android: { priority: "HIGH", ttl: "86400s", collapseKey: "astro_pending_events" } } }),
     });
     if (response.ok) { await response.body?.cancel(); return "accepted"; }
     const result = await response.json().catch(() => ({})) as { error?: { details?: { "@type"?: string; errorCode?: string }[] } };

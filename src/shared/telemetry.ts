@@ -12,7 +12,7 @@ interface RecordEntry { timestamp: number; level: Level; fields: Fields }
 interface Scope { fields: Fields; records: RecordEntry[] }
 const scopes = new AsyncLocalStorage<Scope>();
 const allowedFields = ["event", "rule", "runId", "status", "reason", "code", "dryRun", "candidates",
-  "inserted", "duplicates", "batches", "durationMs", "scheduledTime", "outcomes"];
+  "inserted", "duplicates", "batches", "durationMs", "scheduledTime", "outcomes", "sent", "invalid", "missingTokens", "failures"];
 const attribute = (key: string, value: string) => ({ key, value: { stringValue: value } });
 const nanos = (milliseconds: number) => (BigInt(milliseconds) * 1000000n).toString();
 
