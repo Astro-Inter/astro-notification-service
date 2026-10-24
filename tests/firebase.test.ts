@@ -17,6 +17,15 @@ function gateway(replies: Response[]) {
 const access = () => Response.json({ access_token: "fixture-oauth-only", expires_in: 3600 });
 const device = { id: "installation", token: "fixture-only-token", version: "2026-10-24T12:00:00Z" };
 describe("integração oficial Firestore/FCM HTTP v1 sem expor credenciais", () => {
+  it("limita requisições externas por rodada e reinicia o orçamento preservando OAuth em cache", async () => {
+    const { client, request } = gateway([access(), ...Array.from({ length: 40 }, () => Response.json({}))]);
+    for (let index = 0; index < 39; index++) await client.devices("uid");
+    await expect(client.devices("uid")).rejects.toMatchObject({ code: "FIREBASE_REQUEST_BUDGET" });
+    expect(request).toHaveBeenCalledTimes(40);
+    client.beginRun();
+    expect(await client.devices("uid")).toEqual([]);
+    expect(request).toHaveBeenCalledTimes(41);
+  });
   it("usa o fetch global sem vincular seu this ao gateway", async () => {
     const request = vi.fn(function (this: unknown) {
       expect(this).not.toBeInstanceOf(FirebaseGateway);

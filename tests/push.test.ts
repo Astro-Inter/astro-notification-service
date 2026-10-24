@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PushLedger, PUSH_INTERVAL } from "../src/push/ledger";
 import { runPendingPush, type PushEnv, type PushSource } from "../src/push/runner";
 import { sqliteLedger } from "./helpers/ledger";
+import { ServiceError } from "../src/shared/errors";
 const fixtures: ReturnType<typeof sqliteLedger>[] = [];
 afterEach(() => { for (const fixture of fixtures.splice(0)) fixture.close(); });
 const start = Date.parse("2026-01-30T11:00:00Z");
@@ -19,6 +20,19 @@ function fixture() {
   return { ledger, source, dependencies, env, user, reopen: () => new PushLedger(sql.storage), run: (at = start) => runPendingPush(env, ledger, at, dependencies) };
 }
 describe("somente lembrete genérico de eventos pendentes a cada 72 horas", () => {
+  it("continua após atingir orçamento externo sem perder destinatários nem repetir os concluídos", async () => {
+    const f = fixture();
+    const second = { user_id: "3", uid: "second-user" };
+    vi.mocked(f.source.page).mockResolvedValue([f.user, second]);
+    vi.mocked(f.source.current).mockImplementation(async id => id === "2" ? f.user : second);
+    f.dependencies.gateway.devices.mockResolvedValueOnce([]).mockRejectedValueOnce(new ServiceError("FIREBASE_REQUEST_BUDGET", "Continuar"));
+    expect(await f.run()).toMatchObject({ status: "deferred", reason: "request_budget", missingTokens: 1, failures: 0 });
+    expect(f.ledger.status().pendingRecipients).toBe(1);
+    f.dependencies.gateway.devices.mockClear().mockResolvedValue([]);
+    expect(await f.run(start + hour)).toMatchObject({ status: "completed", missingTokens: 1, failures: 0 });
+    expect(f.dependencies.gateway.devices).toHaveBeenCalledExactlyOnceWith(second.uid);
+    expect(f.ledger.status().pendingRecipients).toBe(0);
+  });
   it("envia uma vez por dispositivo no ciclo e não consulta bancos nas horas intermediárias", async () => {
     const f = fixture(); const result = await f.run();
     expect(result.sent).toBe(1);

@@ -19,6 +19,7 @@ export class PendingPushCoordinator extends DurableObject<WorkerEnv> {
       if (!booleanSetting(this.env.ENABLED, false)) return { status: "skipped", reason: "disabled" };
       if (booleanSetting(this.env.DRY_RUN, true)) return { status: "skipped", reason: "dry_run" };
       try {
+        this.gateway.beginRun();
         const result = await runPendingPush(this.env, this.ledger, time, { source: () => openPushSource(this.env), gateway: this.gateway,
           sync: () => this.ctx.storage.sync() });
         logEvent("info", { event: "push_finished", ...result }); return result;

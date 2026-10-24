@@ -25,7 +25,7 @@ export async function openPushSource(env: PushEnv): Promise<PushSource> {
 }
 interface PushDependencies {
   source: () => Promise<PushSource>;
-  gateway: Pick<FirebaseGateway, "devices" | "send" | "removeInvalid">;
+  gateway: Pick<FirebaseGateway, "devices" | "send" | "removeInvalid"> & { assertCapacity?: (count: number) => void };
   sync: () => Promise<void>;
 }
 const fatalFirebaseError = (error: unknown) => error instanceof ServiceError
@@ -67,6 +67,8 @@ export async function runPendingPush(env: PushEnv, ledger: PushLedger, time: num
         if (receipt.id === null || !Number.isSafeInteger(receipt.id)) throw new ServiceError("PUSH_RECEIPT_MISSING", "ID de notificação ausente");
         if (receipt.inserted) result.inserted++;
         for (const device of devices) {
+          // Reservar envio e eventual exclusão antes de consumir uma tentativa durável.
+          dependencies.gateway.assertCapacity?.(2);
           if (!ledger.attempt(cycle.id, recipient.user_id, device.id, now)) { result.duplicates++; continue; }
           await dependencies.sync();
           try {
@@ -80,18 +82,24 @@ export async function runPendingPush(env: PushEnv, ledger: PushLedger, time: num
               result.failures++;
             }
           } catch (error) {
-            if (fatalFirebaseError(error)) throw error;
+            if (fatalFirebaseError(error) || (error instanceof ServiceError && error.code === "FIREBASE_REQUEST_BUDGET")) throw error;
             result.failures++;
           }
           await dependencies.sync();
         }
         if (!ledger.retryPending(cycle.id, recipient.user_id)) ledger.done(cycle.id, recipient.user_id);
       } catch (error) {
-        if (fatalFirebaseError(error)) throw error;
+        if (fatalFirebaseError(error) || (error instanceof ServiceError && error.code === "FIREBASE_REQUEST_BUDGET")) throw error;
         result.failures++;
       }
       await dependencies.sync();
     }
     return result;
+  } catch (error) {
+    if (error instanceof ServiceError && error.code === "FIREBASE_REQUEST_BUDGET") {
+      await dependencies.sync();
+      return { ...result, status: "deferred", reason: "request_budget" };
+    }
+    throw error;
   } finally { await source.close(); }
 }

@@ -12,7 +12,17 @@ const encode = (value: unknown) => base64url(new TextEncoder().encode(JSON.strin
 
 export class FirebaseGateway {
   private cached?: { value: string; until: number };
+  private requests = 0;
   constructor(private readonly env: FirebaseEnv, private readonly request: typeof fetch = (...args) => fetch(...args)) {}
+  beginRun(): void { this.requests = 0; }
+  assertCapacity(count = 1): void {
+    // Free permite 50 subrequests externas; preservar margem para telemetria e plataforma.
+    if (this.requests + count > 40) throw new ServiceError("FIREBASE_REQUEST_BUDGET", "Continuar na próxima execução");
+  }
+  private requestWithinBudget(url: string, init: RequestInit): Promise<Response> {
+    this.assertCapacity(); this.requests++;
+    return this.request(url, init);
+  }
   private project(): string {
     if (!this.env.FIREBASE_PROJECT_ID || !/^[a-z][a-z0-9-]{4,62}$/.test(this.env.FIREBASE_PROJECT_ID)) throw new ServiceError("FIREBASE_CONFIG", "Projeto Firebase ausente ou inválido");
     return this.env.FIREBASE_PROJECT_ID;
@@ -30,7 +40,7 @@ export class FirebaseGateway {
       const unsigned = `${encode({ alg: "RS256", typ: "JWT" })}.${encode({ iss: account.client_email, scope: scopes, aud: tokenEndpoint, iat: now, exp: now + 3600 })}`;
       const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
       stage = "REQUEST";
-      const response = await this.request(tokenEndpoint, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(10000),
+      const response = await this.requestWithinBudget(tokenEndpoint, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(10000),
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${base64url(new Uint8Array(signature))}` }) });
       if (!response.ok) { await response.body?.cancel(); throw new ServiceError(`FIREBASE_AUTH_HTTP_${response.status}`, "Firebase recusou a autenticação"); }
@@ -46,8 +56,9 @@ export class FirebaseGateway {
   }
   private async call(url: string, init: RequestInit = {}): Promise<Response> {
     try {
-      return await this.request(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(10000),
-        headers: { "content-type": "application/json", Authorization: `Bearer ${await this.accessToken()}` } });
+      const accessToken = await this.accessToken();
+      return await this.requestWithinBudget(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(10000),
+        headers: { "content-type": "application/json", Authorization: `Bearer ${accessToken}` } });
     } catch (error) {
       if (error instanceof ServiceError) throw error;
       throw new ServiceError("FIREBASE_UNAVAILABLE", "Firebase indisponível");
