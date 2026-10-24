@@ -17,6 +17,21 @@ function gateway(replies: Response[]) {
 const access = () => Response.json({ access_token: "fixture-oauth-only", expires_in: 3600 });
 const device = { id: "installation", token: "fixture-only-token", version: "2026-10-24T12:00:00Z" };
 describe("integração oficial Firestore/FCM HTTP v1 sem expor credenciais", () => {
+  it("usa o fetch global sem vincular seu this ao gateway", async () => {
+    const request = vi.fn(function (this: unknown) {
+      expect(this).not.toBeInstanceOf(FirebaseGateway);
+      return Promise.resolve(request.mock.calls.length === 1 ? access() : Response.json({}));
+    });
+    vi.stubGlobal("fetch", request);
+    try {
+      const client = new FirebaseGateway({ FIREBASE_PROJECT_ID: "demo-astro-push", FIREBASE_CREDENTIALS_BASE64: credentials });
+      expect(await client.devices("uid")).toEqual([]);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("diagnostica autenticação sem expor a resposta ou credenciais", async () => {
+    const { client } = gateway([Response.json({ error_description: "sensitive-provider-detail" }, { status: 400 })]);
+    await expect(client.devices("uid")).rejects.toMatchObject({ code: "FIREBASE_AUTH_HTTP_400", message: "Firebase recusou a autenticação" });
+  });
   it("assina JWT RS256 correto com escopos mínimos e reutiliza o access token", async () => {
     const { client, request } = gateway([access(), Response.json({}), Response.json({})]);
     expect(await client.devices("uid")).toEqual([]); await client.devices("uid");

@@ -28,6 +28,8 @@ interface PushDependencies {
   gateway: Pick<FirebaseGateway, "devices" | "send" | "removeInvalid">;
   sync: () => Promise<void>;
 }
+const fatalFirebaseError = (error: unknown) => error instanceof ServiceError
+  && (error.code.startsWith("FIREBASE_AUTH") || ["FCM_PERMISSION", "FIREBASE_CONFIG", "FCM_PAYLOAD"].includes(error.code));
 export async function runPendingPush(env: PushEnv, ledger: PushLedger, time: number, dependencies: PushDependencies) {
   const result = { status: "completed", candidates: 0, inserted: 0, duplicates: 0, sent: 0, invalid: 0, missingTokens: 0, failures: 0 };
   if (!Number.isFinite(time) || time < 0) throw new ServiceError("INVALID_PUSH_TIME", "Horário inválido");
@@ -78,14 +80,14 @@ export async function runPendingPush(env: PushEnv, ledger: PushLedger, time: num
               result.failures++;
             }
           } catch (error) {
-            if (error instanceof ServiceError && ["FCM_PERMISSION", "FIREBASE_AUTH", "FIREBASE_CONFIG", "FCM_PAYLOAD"].includes(error.code)) throw error;
+            if (fatalFirebaseError(error)) throw error;
             result.failures++;
           }
           await dependencies.sync();
         }
         if (!ledger.retryPending(cycle.id, recipient.user_id)) ledger.done(cycle.id, recipient.user_id);
       } catch (error) {
-        if (error instanceof ServiceError && ["FCM_PERMISSION", "FIREBASE_AUTH", "FIREBASE_CONFIG", "FCM_PAYLOAD"].includes(error.code)) throw error;
+        if (fatalFirebaseError(error)) throw error;
         result.failures++;
       }
       await dependencies.sync();
