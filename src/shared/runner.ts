@@ -1,3 +1,4 @@
+import { observe } from "./diagnostics";
 import { booleanSetting, dateInSaoPaulo, positiveId, settingsFromEnv } from "./config";
 import { ServiceError } from "./errors";
 import { openNotificationStore } from "./control-store";
@@ -34,15 +35,15 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
   let source: CandidateSource | undefined;
   let store: NotificationStore | undefined;
   try {
-    source = await deps.source(env);
+    source = await observe("source_connect", "postgresql", () => deps.source(env));
     if (!settings.dryRun) {
-      store = await deps.store(env);
+      store = await observe("delivery_connect", "notification_control", () => deps.store(env));
       // Sem índice único, nenhuma notificação deve ser escrita.
-      await store.ensureIndexes();
+      await observe("ensure_indexes", "notification_control", () => store!.ensureIndexes());
     }
     let after = "0";
     for (let batch = 0; batch < settings.maxBatches; batch++) {
-      const rows = await source.page(rule, context, after);
+      const rows = await observe("candidate_page", "postgresql", () => source!.page(rule, context, after));
       if (!rows.length) return { ...result, status: "completed" };
       result.batches++;
       for (const row of rows) {
@@ -50,7 +51,7 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
         const notification = notificationFor(rule, row, context);
         result.candidates++;
         if (store) {
-          if (await store.insertOnce(notification)) result.inserted++;
+          if (await observe("deliver_notification", "notification_control", () => store!.insertOnce(notification))) result.inserted++;
           else result.duplicates++;
         }
         after = row.cursor;
@@ -58,7 +59,7 @@ export async function runRule(rule: RuleId, env: Env, now = new Date(), deps = d
       if (rows.length < settings.batchSize) return { ...result, status: "completed" };
     }
     // Não esconder truncamento: falhar permite alertar e ajustar capacidade.
-    const remaining = await source.page(rule, context, after);
+    const remaining = await observe("candidate_page", "postgresql", () => source!.page(rule, context, after));
     if (remaining.length) throw new ServiceError("BATCH_LIMIT_REACHED", "Limite de lotes atingido; ajuste a capacidade da execução");
     return { ...result, status: "completed" };
   } finally {

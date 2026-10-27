@@ -12,7 +12,7 @@ interface RecordEntry { timestamp: number; level: Level; fields: Fields }
 interface Scope { fields: Fields; records: RecordEntry[] }
 const scopes = new AsyncLocalStorage<Scope>();
 const allowedFields = ["event", "rule", "runId", "status", "reason", "code", "dryRun", "candidates",
-  "inserted", "duplicates", "batches", "durationMs", "scheduledTime", "outcomes", "sent", "invalid", "missingTokens", "failures"];
+  "inserted", "duplicates", "batches", "durationMs", "scheduledTime", "outcomes", "sent", "invalid", "missingTokens", "failures", "stage", "dependency", "dependency_duration_ms", "error_type", "error_code", "error_message", "error_frames", "error_causes"];
 const attribute = (key: string, value: string) => ({ key, value: { stringValue: value } });
 const nanos = (milliseconds: number) => (BigInt(milliseconds) * 1000000n).toString();
 
@@ -74,7 +74,7 @@ async function flush(env: GrafanaEnv, service: string, records: RecordEntry[]): 
         return;
       }
     }
-    console.log(JSON.stringify({ event: "telemetry_export_succeeded", service, records: records.length, httpStatus: response.status }));
+
   } catch {
     // Não registrar exceções, headers, URI, resposta do provedor ou credenciais.
     console.warn(JSON.stringify({ event: "telemetry_unavailable", service }));

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { grafanaHeaders, logEvent, withTelemetry } from "../src/shared/telemetry";
+import { diagnostic, observe } from "../src/shared/diagnostics";
 
 const env = { GRAFANA_OTLP_ENDPOINT: "https://collector.grafana.net/otlp",
   GRAFANA_OTLP_HEADERS: "Authorization=Basic%20fixture%3D", APP_ENV: "production" };
@@ -14,6 +15,21 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("logs OTLP para Grafana", () => {
+  it("exporta causa técnica e etapa mantendo a identidade do erro sem SQL ou dados pessoais", async () => {
+    const original = Object.assign(new Error("SELECT private@example.com password=secret"), { code: "42P01" });
+    await withTelemetry(env, "worker", { runId: "diagnostic-run" }, async () => {
+      try { await observe("candidate_query", "postgresql", () => { throw original; }); }
+      catch (error) {
+        expect(error).toBe(original);
+        logEvent("error", { event: "execution_failed", ...diagnostic(error), rawError: error });
+      }
+    });
+    const body = fetcher.mock.calls[0]![1].body;
+    expect(body).toContain("candidate_query");
+    expect(body).toContain("42P01");
+    expect(body).toContain("diagnostic-run");
+    expect(body).not.toMatch(/SELECT|private@example|password|secret|rawError/);
+  });
   it("envia autenticação decodificada, datas precisas, severidade e contexto sem dados extras", async () => {
     await withTelemetry(env, "astro-notification-class-deadlines", { runId: "run-1", rule: "class-deadlines" }, async () => {
       logEvent("error", { event: "execution_failed", code: "TEST_ERROR", mensagem: "não exportar", uri: "credencial" });

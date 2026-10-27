@@ -1,3 +1,4 @@
+import { diagnostic } from "../shared/diagnostics";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { PushLedger } from "../push/ledger";
 import { FirebaseGateway } from "../push/firebase";
@@ -25,7 +26,7 @@ export class PendingPushCoordinator extends DurableObject<WorkerEnv> {
           sync: () => this.ctx.storage.sync() });
         logEvent("info", { event: "push_finished", ...result }); return result;
       } catch (error) {
-        logEvent("error", { event: "push_failed", code: safeErrorCode(error) });
+        logEvent("error", { event: "push_failed", code: safeErrorCode(error), ...diagnostic(error) });
         throw new Error(`Falha no lembrete push: ${safeErrorCode(error)}`);
       }
     }));
