@@ -559,3 +559,7 @@ foram retirados das regras e mantidos somente no Worker técnico.
 - [Certificados TLS do Aiven](https://aiven.io/docs/platform/concepts/tls-ssl-certificates).
 - [Endpoint OTLP do Grafana Cloud](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/).
 - [Protocolo OTLP e rejeições parciais](https://opentelemetry.io/docs/specs/otlp/).
+
+## Diagnóstico operacional
+
+Consulte [os campos e limites dos novos diagnósticos](docs/observability-diagnostics.md) para investigar falhas por requisição ou execução no Grafana.

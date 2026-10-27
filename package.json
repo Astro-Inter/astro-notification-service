@@ -8,7 +8,7 @@
   },
   "scripts": {
     "check": "node node_modules/typescript/bin/tsc --noEmit",
-    "test": "node node_modules/vitest/vitest.mjs run",
+    "test": "node node_modules/vitest/vitest.mjs run && npm run test:diagnostics",
     "test:runtime": "node --test tests/runtime/workers.test.mjs",
     "test:mongo": "node scripts/test-mongo.mjs",
     "dev": "node scripts/workers.mjs dev",
@@ -18,7 +18,8 @@
     "secrets:upload": "node scripts/secrets.mjs",
     "secrets:grafana": "node scripts/grafana-secrets.mjs",
     "secrets:firebase": "node scripts/firebase-secrets.mjs",
-    "connections:check": "node scripts/check-connections.mjs"
+    "connections:check": "node scripts/check-connections.mjs",
+    "test:diagnostics": "node --experimental-strip-types --test diagnostics.contract.mjs"
   },
   "dependencies": {
     "mongodb": "^7.7.0",

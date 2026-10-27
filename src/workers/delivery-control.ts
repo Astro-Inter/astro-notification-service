@@ -1,3 +1,4 @@
+import { diagnostic } from "../shared/diagnostics";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DeliveryLedger, type Receipt } from "../control/ledger";
 import { deliverNotification, type NotificationWriter } from "../control/delivery";
@@ -36,7 +37,7 @@ export class NotificationCoordinator extends DurableObject<ControlEnv> {
         logEvent("info", { event: "delivery_finished", status: "completed", inserted: inserted ? 1 : 0, duplicates: inserted ? 0 : 1 });
         return { inserted, id: this.ledger.get(intent.deduplicationKey)?.id ?? null };
       } catch (error) {
-        logEvent("error", { event: "delivery_failed", code: safeErrorCode(error) });
+        logEvent("error", { event: "delivery_failed", code: safeErrorCode(error), ...diagnostic(error) });
         throw new Error(`Falha no controle de entrega: ${safeErrorCode(error)}`);
       }
     }));

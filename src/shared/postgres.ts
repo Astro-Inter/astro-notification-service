@@ -1,3 +1,4 @@
+import { observe } from "./diagnostics";
 import { Client, type ClientConfig } from "pg";
 import { candidateQuery } from "../rules/queries";
 import { logEvent } from "./telemetry";
@@ -31,13 +32,13 @@ export async function openCandidateSource(env: Env): Promise<CandidateSource> {
     if (!closing) logEvent("error", { event: "postgres_connection_error" });
   });
   try {
-    await client.connect();
+    await observe("connect", "postgresql", () => client.connect());
     return {
       async page(rule, context, after) {
         const query = candidateQuery(rule, context, after);
         await client.query("BEGIN READ ONLY");
         try {
-          const { rows } = await client.query<Candidate>(query.text, query.values);
+          const { rows } = await observe("candidate_query", "postgresql", () => client.query<Candidate>(query.text, query.values));
           await client.query("COMMIT");
           return rows;
         } catch (error) {

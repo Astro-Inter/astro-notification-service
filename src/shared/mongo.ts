@@ -1,3 +1,4 @@
+import { observe } from "./diagnostics";
 import type { Db } from "mongodb";
 import type { NotificationWriter } from "../control/delivery";
 import { ServiceError } from "./errors";
@@ -60,6 +61,6 @@ export async function openNotificationWriter(env: { MONGODB_URI?: string; MONGOD
   const { MongoClient } = await import("mongodb");
   const client = new MongoClient(env.MONGODB_URI, { maxPoolSize: 1, minPoolSize: 0,
     serverSelectionTimeoutMS: 10000, connectTimeoutMS: 10000, socketTimeoutMS: 15000 });
-  try { await client.connect(); return collectionWriter(client.db(env.MONGODB_DATABASE), () => client.close()); }
+  try { await observe("connect", "mongodb", () => client.connect()); return collectionWriter(client.db(env.MONGODB_DATABASE), () => client.close()); }
   catch (error) { await client.close(); throw error; }
 }
