@@ -1,4 +1,5 @@
 import { ServiceError } from "../shared/errors";
+import type { ChatPushEvent } from "../chat/contract";
 
 export interface FirebaseEnv { FIREBASE_PROJECT_ID?: string; FIREBASE_CREDENTIALS_BASE64?: string }
 export interface Device { id: string; token: string; version: string }
@@ -92,10 +93,19 @@ export class FirebaseGateway {
     if (!response.ok && response.status !== 404 && response.status !== 412) throw new ServiceError("FIRESTORE_DELETE", "Não foi possível remover token inválido");
   }
   async send(uid: string, cycle: number, id: number, device: Device): Promise<SendResult> {
+    return this.sendPayload(device, { type: "pending_events", uid, cycle_id: String(cycle),
+      notification_id: String(id), title: PUSH_TITLE, body: PUSH_BODY }, "astro_pending_events", 86400);
+  }
+  async sendChat(event: ChatPushEvent, device: Device): Promise<SendResult> {
+    const ttl = Math.max(1, Math.min(86400, Math.floor((Date.parse(event.createdAt) + 86400000 - Date.now()) / 1000)));
+    return this.sendPayload(device, { type: "chat_message", uid: event.recipientUid,
+      message_id: event.messageId, conversation_id: event.conversationId, sender_id: event.senderId,
+      sender_name: event.senderName, body: event.preview, created_at: event.createdAt }, undefined, ttl);
+  }
+  private async sendPayload(device: Device, data: Record<string, string>, collapseKey: string | undefined, ttl: number): Promise<SendResult> {
     const response = await this.call(`https://fcm.googleapis.com/v1/projects/${this.project()}/messages:send`, {
-      method: "POST", body: JSON.stringify({ message: { token: device.token,
-        data: { type: "pending_events", uid, cycle_id: String(cycle), notification_id: String(id), title: PUSH_TITLE, body: PUSH_BODY },
-        android: { priority: "HIGH", ttl: "86400s", collapseKey: "astro_pending_events" } } }),
+      method: "POST", body: JSON.stringify({ message: { token: device.token, data,
+        android: { priority: "HIGH", ttl: String(ttl) + "s", ...(collapseKey ? { collapseKey } : {}) } } }),
     });
     if (response.ok) { await response.body?.cancel(); return "accepted"; }
     const result = await response.json().catch(() => ({})) as { error?: { details?: { "@type"?: string; errorCode?: string }[] } };

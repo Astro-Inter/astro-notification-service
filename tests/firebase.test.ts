@@ -69,6 +69,18 @@ describe("integração oficial Firestore/FCM HTTP v1 sem expor credenciais", () 
     expect(body.message.data).toMatchObject({ type: "pending_events", uid: "uid", cycle_id: "123", notification_id: "11" });
     expect(body.message.android).toMatchObject({ ttl: "86400s", priority: "HIGH" });
   });
+  it("envia prévia de chat como data-only sem colapsar mensagens distintas", async () => {
+    const { client, request } = gateway([access(), Response.json({ name: "accepted" })]);
+    expect(await client.sendChat({ version: 1, messageId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      conversationId: "11111111-2222-4333-8444-555555555555", senderId: "1", recipientId: "2",
+      workspaceId: "10", recipientUid: "uid", senderName: "Gestor", preview: "Olá",
+      createdAt: new Date().toISOString() }, device)).toBe("accepted");
+    const body = JSON.parse(request.mock.calls[1]![1]!.body as string);
+    expect(body.message).not.toHaveProperty("notification");
+    expect(body.message.data).toMatchObject({ type: "chat_message", uid: "uid", sender_name: "Gestor", body: "Olá" });
+    expect(body.message.android).not.toHaveProperty("collapseKey");
+    expect(body.message.android).not.toHaveProperty("collapse_key");
+  });
   it("só invalida tokens quando o erro é específico do FCM, nunca em erro genérico do payload", async () => {
     const { client } = gateway([access(), Response.json({ error: { details: [{ "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", errorCode: "UNREGISTERED" }] } }, { status: 404 }),
       Response.json({ error: { status: "INVALID_ARGUMENT" } }, { status: 400 })]);
