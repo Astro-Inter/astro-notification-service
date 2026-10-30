@@ -4,10 +4,10 @@
   "main": "../../src/workers/chat-message-push.ts",
   "compatibility_date": "2026-10-18",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
   "triggers": { "crons": [] },
-  "vars": { "ENABLED": "false" },
+  "vars": { "ENABLED": "true" },
   "observability": { "enabled": true, "logs": { "enabled": false } },
   "durable_objects": { "bindings": [{ "name": "CHAT_PUSHES", "class_name": "ChatPushCoordinator" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChatPushCoordinator"] }]

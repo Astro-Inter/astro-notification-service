@@ -12,7 +12,7 @@ CHAT_PUSH_SECRET compartilhado apenas com a API Java. Segredo aleatório de
 32–256 caracteres. Autentica antes de ler o corpo, limitado a 4.096 bytes.
 ENABLED precisa ser true; padrão false. Não recebe tokens Firebase do usuário.
 
-Corpo versão 1, exatamente onze campos:
+Corpo versão 1, exatamente dez campos:
 version (número 1), messageId/conversationId (UUID), senderId/recipientId/workspaceId
 (strings decimais positivas), recipientUid (Firebase UID), senderName (1–80 pontos
 Unicode), preview (1–160 pontos Unicode), createdAt (ISO-8601, até 24h, tolerância
@@ -48,14 +48,25 @@ no Worker e aplicativo reduzem repetições. Aceite não confirma exibição/lei
 ## Configuração e teste
 
 1. Configurar binding CHAT_PUSHES e migração SQLite v1, já declarados no wrangler.
-2. Provisionar ingress HTTPS da infraestrutura para este Worker. workers_dev e
-   preview estão desligados; não há hostname inventado nem rota publicada.
+2. Usar o ingress HTTPS workers.dev retornado pelo deploy, com o caminho
+   /internal/chat-messages. Preview permanece desligado; o ingresso exige o
+   segredo compartilhado com a API antes de aceitar eventos.
 3. Cadastrar secrets FIREBASE_PROJECT_ID, FIREBASE_CREDENTIALS_BASE64 (mesma conta
    de serviço já autorizada para Firestore/FCM) e CHAT_PUSH_SECRET no novo Worker.
    O script secrets:firebase existente atende apenas pending-events-push; para
    este Worker usar secret bulk/put com --config workers/chat-message-push/wrangler.jsonc.
 4. Habilitar ENABLED, publicar e configurar URL/segredo na API; ativar API por último.
-   Publicação e entrega real não foram executadas nesta etapa.
+   O Worker foi publicado em 30/10/2026 com ENABLED=true e os três secrets,
+   usando as credenciais Firebase autorizadas do arquivo de ambiente da API IA.
+   Ingress: https://astro-notification-chat-message-push.app-4str0.workers.dev/internal/chat-messages.
+   A API Java ainda precisa receber a URL, o mesmo segredo e CHAT_PUSH_ENABLED=true
+   em seu ambiente de execução. O segredo local de integração fica em
+   .wrangler/chat-push.env, ignorado pelo Git; nunca copiar seu valor para issues,
+   logs ou documentação. A entrega de mensagens reais ainda não foi validada.
+   Validação HTTPS após ativação: sem autenticação e com segredo inválido retornam
+   401; autenticação válida com corpo vazio de contrato retorna 400. Os três
+   secrets foram confirmados por nome. Nenhum evento de usuário foi enfileirado
+   por essa checagem. Versão publicada: c36083b8-b3e8-48e4-a390-156a61a2096c.
 
 Verificação local: npm run check; npm test; npm run test:runtime;
 npm run build -- chat-message-push (dry-run). Testes cobrem autenticação,
