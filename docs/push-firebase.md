@@ -1,6 +1,7 @@
 # Lembrete Android de eventos pendentes — SCRUM-617
 
-Este é o **único push** enviado pelo serviço. Ele não encaminha automaticamente
+Este documento descreve o lembrete periódico. O push imediato de mensagens está
+em [chat-push.md](chat-push.md). O lembrete não encaminha automaticamente
 os avisos de conformidade, prazos ou validações já gravados pelas outras regras.
 
 - Título: **Eventos pendentes**.

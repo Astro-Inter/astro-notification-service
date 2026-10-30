@@ -25,6 +25,15 @@ delete push.account_id; delete push.$schema; delete push.hyperdrive;
 push.main = resolve("src/workers/pending-events-push.ts");
 push.vars = { ...push.vars, ENABLED: "false", DRY_RUN: "true" };
 configs.push({ config: push, secrets: { FIREBASE_PROJECT_ID: "", FIREBASE_CREDENTIALS_BASE64: "" } });
+const chat = JSON.parse(readFileSync("workers/chat-message-push/wrangler.jsonc", "utf8"));
+delete chat.$schema;
+chat.main = resolve("src/workers/chat-message-push.ts");
+chat.vars = { ENABLED: "false" };
+configs.push({ config: chat, secrets: { CHAT_PUSH_SECRET: "runtime-test-".repeat(4) } });
+configs.push({ config: { name: "chat-fixture", main: resolve("tests/runtime/chat-fixture.ts"),
+  compatibility_date: "2026-10-18", compatibility_flags: ["nodejs_compat"], vars: { ENABLED: "true" },
+  durable_objects: { bindings: [{ name: "FIXTURE", class_name: "ChatFixture" }] },
+  migrations: [{ tag: "v1", new_sqlite_classes: ["ChatFixture"] }] } });
 configs.push({ config: { name: "control-fixture", main: resolve("tests/runtime/control-fixture.ts"),
   compatibility_date: "2026-10-18", compatibility_flags: ["nodejs_compat"],
   durable_objects: { bindings: [{ name: "FIXTURE", class_name: "ControlFixture" }] },
@@ -44,6 +53,34 @@ configs.push({ config: { name: "rpc-probe", main: resolve("tests/runtime/rpc-pro
 const server = createTestHarness({ workers: configs });
 before(async () => { await server.listen(); });
 after(async () => { await server.close(); });
+
+test("chat autentica a entrada e respeita o desligamento sem tocar no Firebase", async () => {
+  const worker = server.getWorker("astro-notification-chat-message-push");
+  const url = "https://example.com/internal/chat-messages";
+  assert.equal((await worker.fetch(url, { method: "POST" })).status, 401);
+  assert.equal((await worker.fetch(url, { method: "POST",
+    headers: { Authorization: "Bearer " + "runtime-test-".repeat(4) } })).status, 503);
+});
+
+test("chat persiste recibo, recusa conflito, recupera alarme e remove prévia expirada", async () => {
+  const fixture = server.getWorker("chat-fixture");
+  const event = { version: 1, messageId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    conversationId: "11111111-2222-4333-8444-555555555555", senderId: "1", recipientId: "2",
+    workspaceId: "10", recipientUid: "uid", senderName: "Gestor", preview: "Fixture", createdAt: new Date().toISOString() };
+  const send = body => fixture.fetch("https://example.com/accept", { method: "POST", body: JSON.stringify(body) });
+  assert.equal((await send(event)).status, 202);
+  assert.equal((await send(event)).status, 202);
+  assert.equal((await send({ ...event, preview: "different" })).status, 409);
+  await fixture.fetch("https://example.com/lost-alarm");
+  assert.equal((await send(event)).status, 202);
+  let state = await (await fixture.fetch("https://example.com/status")).json();
+  assert.ok(state.alarm > 0);
+  assert.equal(state.receipt.messageId, event.messageId);
+  state = await (await fixture.fetch("https://example.com/expire")).json();
+  assert.equal(state.state, undefined);
+  assert.equal(state.receipt.messageId, event.messageId);
+  assert.equal((await send(event)).status, 202);
+});
 
 for (const rule of workers) {
   test(`${rule}: inicia no workerd e não acessa bancos quando desabilitado`, async () => {
