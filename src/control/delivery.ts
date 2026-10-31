@@ -19,14 +19,14 @@ export async function deliverNotification(intent: NotificationIntent, ledger: De
   // Uma entrega confirmada independe da existência atual do aviso no MongoDB.
   if (existing?.state === "confirmed") return false;
   const document = intent.document;
-  if (!Number.isSafeInteger(document.id_usuario) || document.id_usuario < 1
-    || (document.id_evento !== undefined && (!Number.isSafeInteger(document.id_evento) || document.id_evento < 1))
+  if (!Number.isSafeInteger(document.usuario_id) || document.usuario_id < 1
+    || (document.evento_id !== undefined && (!Number.isSafeInteger(document.evento_id) || document.evento_id < 1))
     || typeof document.titulo !== "string" || !document.titulo || typeof document.mensagem !== "string" || !document.mensagem
     || !(document.data_criacao instanceof Date) || !Number.isFinite(document.data_criacao.getTime())) {
     throw new ServiceError("INVALID_NOTIFICATION", "Notificação inválida");
   }
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([
-    document.id_usuario, document.id_evento ?? null, document.mensagem, document.titulo,
+    document.usuario_id, document.evento_id ?? null, document.mensagem, document.titulo,
   ])));
   const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
   if (existing && existing.fingerprint !== fingerprint) throw new ServiceError("PENDING_CONTENT_MISMATCH", "Conteúdo da reserva pendente mudou");

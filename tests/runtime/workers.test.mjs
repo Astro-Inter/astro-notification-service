@@ -120,7 +120,7 @@ test("disparador preserva análises diárias e inclui o serviço push no gatilho
 test("controle persistente coordena concorrência, reinício, exclusão e falha após gravar", async () => {
   const fixture = server.getWorker("control-fixture");
   assert.equal((await (await fixture.fetch("https://example.com/initialize")).json()).initialized, true);
-  const intent = { deduplicationKey: "runtime-one", document: { id_usuario: 2, id_evento: 1,
+  const intent = { deduplicationKey: "runtime-one", document: { usuario_id: 2, evento_id: 1,
     mensagem: "Fixture", titulo: "Fixture", data_criacao: "2026-10-18T12:00:00.000Z" } };
   const deliver = async body => {
     const response = await fixture.fetch("https://example.com/deliver", { method: "POST", body: JSON.stringify(body) });

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Db } from "mongodb";
 import { collectionWriter } from "../src/shared/mongo";
 import { notificationId } from "../src/shared/notification-id";
-const document = { id_usuario: 2, titulo: "Treinamento", mensagem: "Conclua o treinamento.", data_criacao: new Date(), id_evento: 1 };
+const document = { usuario_id: 2, titulo: "Treinamento", mensagem: "Conclua o treinamento.", data_criacao: new Date(), evento_id: 1 };
 function setup() {
   const notifications = { createIndex: vi.fn(), findOne: vi.fn().mockResolvedValue(null), insertOne: vi.fn() };
   const collection = vi.fn((name: string) => notifications);
@@ -18,9 +18,9 @@ describe("escrita MongoDB em uma coleção", () => {
     await writer.write(43, { ...document, workspace_id: 999 } as typeof document);
     expect(notifications.insertOne).toHaveBeenCalledWith({ _id: 43, ...document });
   });
-  it("omite id_evento ausente", async () => {
-    const { writer, notifications } = setup(); const { id_evento: _, ...withoutEvent } = document;
-    await writer.write(43, withoutEvent); expect(notifications.insertOne.mock.calls[0]![0]).not.toHaveProperty("id_evento");
+  it("omite evento_id ausente", async () => {
+    const { writer, notifications } = setup(); const { evento_id: _, ...withoutEvent } = document;
+    await writer.write(43, withoutEvent); expect(notifications.insertOne.mock.calls[0]![0]).not.toHaveProperty("evento_id");
   });
   it("retorna o maior ID sequencial e recusa falta de precisão", async () => {
     const { writer, notifications } = setup();
@@ -39,7 +39,7 @@ describe("escrita MongoDB em uma coleção", () => {
     expect(await writer.write(43, document)).toBe(false);
   });
   it("recusa ID ocupado por outro conteúdo", async () => {
-    const { writer, notifications } = setup(); notifications.findOne.mockResolvedValue({ _id: 43, ...document, id_usuario: 99 });
+    const { writer, notifications } = setup(); notifications.findOne.mockResolvedValue({ _id: 43, ...document, usuario_id: 99 });
     await expect(writer.write(43, document)).rejects.toMatchObject({ code: "NOTIFICATION_ID_COLLISION" });
     expect(notifications.insertOne).not.toHaveBeenCalled();
   });

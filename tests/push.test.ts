@@ -46,7 +46,7 @@ describe("somente lembrete genérico de eventos pendentes a cada 72 horas", () =
     const f = fixture(); const result = await f.run();
     expect(result.sent).toBe(1);
     expect(f.env.PUSH_CONTROL.deliverWithReceipt).toHaveBeenCalledWith(expect.objectContaining({ document: {
-      id_usuario: 2, titulo: "Eventos pendentes", mensagem: "Você tem eventos pendentes. Abra o Astro para conferir.", data_criacao: new Date(start),
+      usuario_id: 2, titulo: "Eventos pendentes", mensagem: "Você tem eventos pendentes. Abra o Astro para conferir.", data_criacao: new Date(start),
     } }));
     f.dependencies.source.mockClear();
     expect(await f.run(start + hour)).toMatchObject({ status: "skipped", reason: "not_due" });

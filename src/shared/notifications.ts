@@ -42,8 +42,8 @@ export function notificationFor(rule: RuleId, row: Candidate, context: RuleConte
   positiveId(row.recurso_id);
   return {
     document: {
-      id_usuario: userId, mensagem: message, data_criacao: context.now,
-      ...(eventId === undefined ? {} : { id_evento: eventId }), titulo: title,
+      usuario_id: userId, mensagem: message, data_criacao: context.now,
+      ...(eventId === undefined ? {} : { evento_id: eventId }), titulo: title,
     },
     deduplicationKey: JSON.stringify([1, rule, workspaceId, userId, row.recurso_id, row.referencia, stage]),
   };

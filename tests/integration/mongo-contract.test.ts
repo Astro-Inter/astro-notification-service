@@ -15,8 +15,8 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
   let name: string;
   let ledgerState: ReturnType<typeof sqliteLedger>;
   const intent: NotificationIntent = { deduplicationKey: "event-1", document: {
-    id_usuario: 2, mensagem: "Conclua o treinamento pendente.",
-    data_criacao: new Date("2026-06-25T12:19:40.233Z"), id_evento: 1, titulo: "Treinamento pendente",
+    usuario_id: 2, mensagem: "Conclua o treinamento pendente.",
+    data_criacao: new Date("2026-06-25T12:19:40.233Z"), evento_id: 1, titulo: "Treinamento pendente",
   } };
 
   beforeAll(async () => {
@@ -48,9 +48,9 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
     expect(await store.insertOnce(intent)).toBe(true);
     expect(await store.insertOnce({ ...intent, document: { ...intent.document, titulo: "Não deve substituir" } })).toBe(false);
     expect(await db.collection(name).findOne({})).toEqual({ _id: 1, ...intent.document });
-    const { id_evento: _, ...document } = intent.document;
+    const { evento_id: _, ...document } = intent.document;
     expect(await store.insertOnce({ deduplicationKey: "compliance-1", document })).toBe(true);
-    expect(await db.collection(name).findOne({ id_evento: { $exists: false } }))
+    expect(await db.collection(name).findOne({ evento_id: { $exists: false } }))
       .toEqual({ _id: 2, ...document });
   }, 30000);
 
@@ -98,7 +98,7 @@ describe.skipIf(process.env.MONGO_CONTRACT_TEST !== "true")("contrato no MongoDB
 
     // Colisão é testada no escritor; a entrega pendente mantém a reserva.
     const notifications = db.collection<{ _id: number } & Record<string, unknown>>(name);
-    const other = { _id: id, ...intent.document, id_usuario: 99 };
+    const other = { _id: id, ...intent.document, usuario_id: 99 };
     await notifications.insertOne(other);
     const writer = collectionWriter(db, async () => {}, name);
     await expect(writer.write(id, intent.document)).rejects.toMatchObject({ code: "NOTIFICATION_ID_COLLISION" });
