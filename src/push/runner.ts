@@ -63,7 +63,7 @@ export async function runPendingPush(env: PushEnv, ledger: PushLedger, time: num
         const devices = await dependencies.gateway.devices(recipient.uid);
         if (!devices.length) { result.missingTokens++; ledger.done(cycle.id, recipient.user_id); continue; }
         const receipt = await env.PUSH_CONTROL.deliverWithReceipt({ deduplicationKey: JSON.stringify(["pending-events-push", cycle.id, recipient.user_id]),
-          document: { id_usuario: positiveId(recipient.user_id), titulo: PUSH_TITLE, mensagem: PUSH_BODY, data_criacao: new Date(now) } });
+          document: { usuario_id: positiveId(recipient.user_id), titulo: PUSH_TITLE, mensagem: PUSH_BODY, data_criacao: new Date(now) } });
         if (receipt.id === null || !Number.isSafeInteger(receipt.id)) throw new ServiceError("PUSH_RECEIPT_MISSING", "ID de notificação ausente");
         if (receipt.inserted) result.inserted++;
         for (const device of devices) {

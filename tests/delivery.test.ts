@@ -4,7 +4,7 @@ import type { NotificationIntent } from "../src/shared/types";
 import { sqliteLedger } from "./helpers/ledger";
 
 const intent: NotificationIntent = { deduplicationKey: "rule-event-stage", document: {
-  id_usuario: 2, mensagem: "Conclua o treinamento.", titulo: "Treinamento", data_criacao: new Date("2026-10-18T12:00:00Z"), id_evento: 1,
+  usuario_id: 2, mensagem: "Conclua o treinamento.", titulo: "Treinamento", data_criacao: new Date("2026-10-18T12:00:00Z"), evento_id: 1,
 } };
 const fixtures: ReturnType<typeof sqliteLedger>[] = [];
 afterEach(() => { for (const fixture of fixtures.splice(0)) fixture.close(); });
