@@ -4,7 +4,7 @@
   "main": "../../src/workers/chat-message-push.ts",
   "compatibility_date": "2026-10-18",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
   "triggers": { "crons": [] },
   "vars": { "ENABLED": "true" },

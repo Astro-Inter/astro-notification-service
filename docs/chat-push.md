@@ -50,8 +50,11 @@ no Worker e aplicativo reduzem repetições. Aceite não confirma exibição/lei
 ## Configuração e teste
 
 1. Configurar binding CHAT_PUSHES e migração SQLite v1, já declarados no wrangler.
-2. Provisionar ingress HTTPS da infraestrutura para este Worker. workers_dev e
-   preview estão desligados; não há hostname inventado nem rota publicada.
+2. Manter workers_dev=true: a API Java na AWS utiliza o endereço HTTPS
+   https://astro-notification-chat-message-push.app-4str0.workers.dev/internal/chat-messages.
+   Esse ingresso continua protegido por CHAT_PUSH_SECRET; preview_urls permanece
+   false. Só desabilitar workers_dev após configurar e validar outro ingresso
+   HTTPS e atualizar CHAT_PUSH_URL na API.
 3. Cadastrar secrets FIREBASE_PROJECT_ID, FIREBASE_CREDENTIALS_BASE64 (mesma conta
    de serviço já autorizada para Firestore/FCM) e CHAT_PUSH_SECRET no novo Worker.
    O script secrets:firebase existente atende apenas pending-events-push; para
@@ -65,6 +68,12 @@ no Worker e aplicativo reduzem repetições. Aceite não confirma exibição/lei
 O comando npm run dev -- chat-message-push gera uma configuração local com
 ENABLED=false, inclusive com --remote. A ativação de produção não habilita
 automaticamente o processamento no desenvolvimento. Nenhum secret é versionado.
+
+Em 01/11/2026, a API ECS astro-api-fargate:15 utilizava a revisão 82a02d3, com
+CHAT_PUSH_ENABLED=true e o endereço acima. workers_dev=false causava HTTP 404.
+Após restaurar o ingresso, a verificação a partir do CloudShell confirmou 401
+sem autenticação e 400 (Invalid event) com o segredo da API e corpo inválido.
+Essas verificações não criaram evento nem comprovaram entrega FCM ao dispositivo.
 
 Verificação local: npm run check; npm test; npm run test:runtime;
 npm run build -- chat-message-push (dry-run). Testes cobrem autenticação,
