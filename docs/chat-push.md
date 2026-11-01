@@ -10,7 +10,9 @@ na coleção notificacoes: o histórico da mensagem permanece no chat.
 POST /internal/chat-messages, application/json, Authorization Bearer com
 CHAT_PUSH_SECRET compartilhado apenas com a API Java. Segredo aleatório de
 32–256 caracteres. Autentica antes de ler o corpo, limitado a 4.096 bytes.
-ENABLED precisa ser true; padrão false. Não recebe tokens Firebase do usuário.
+ENABLED precisa ser true. A configuração de produção versiona true para preservar
+a ativação nos próximos deploys. Valor ausente ou diferente de true mantém o
+processamento desabilitado. Não recebe tokens Firebase do usuário.
 
 Corpo versão 1, exatamente onze campos:
 version (número 1), messageId/conversationId (UUID), senderId/recipientId/workspaceId
@@ -54,8 +56,15 @@ no Worker e aplicativo reduzem repetições. Aceite não confirma exibição/lei
    de serviço já autorizada para Firestore/FCM) e CHAT_PUSH_SECRET no novo Worker.
    O script secrets:firebase existente atende apenas pending-events-push; para
    este Worker usar secret bulk/put com --config workers/chat-message-push/wrangler.jsonc.
-4. Habilitar ENABLED, publicar e configurar URL/segredo na API; ativar API por último.
-   Publicação e entrega real não foram executadas nesta etapa.
+4. Publicar com ENABLED=true, já declarado na configuração de produção, e configurar
+   URL/segredo na API; ativar API por último. Para pausar o serviço, definir
+   ENABLED=false e preservar essa decisão na configuração do próximo deploy.
+   Em 01/11/2026, a ativação foi reconfirmada no Cloudflare; entrega real ao
+   dispositivo continua dependente de validação ponta a ponta.
+
+O comando npm run dev -- chat-message-push gera uma configuração local com
+ENABLED=false, inclusive com --remote. A ativação de produção não habilita
+automaticamente o processamento no desenvolvimento. Nenhum secret é versionado.
 
 Verificação local: npm run check; npm test; npm run test:runtime;
 npm run build -- chat-message-push (dry-run). Testes cobrem autenticação,
