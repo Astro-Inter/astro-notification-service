@@ -6,12 +6,21 @@ os avisos de conformidade, prazos ou validações já gravados pelas outras regr
 
 - Título: **Eventos pendentes**.
 - Mensagem: **Você tem eventos pendentes. Abra o Astro para conferir.**
-- Colaborador: participação em evento ativo ainda não enviada ou rejeitada.
+- Colaborador: participação em evento ativo ainda não enviada ou rejeitada,
+  somente enquanto o prazo da turma não estiver encerrado.
 - Gestor: participações próprias e eventos sob sua responsabilidade com pendências
-  da equipe ou conclusões aguardando validação. Não existe espera mínima de 48h.
+  da equipe dentro do prazo ou conclusões aguardando validação. Validações já
+  enviadas continuam elegíveis após o prazo. Não existe espera mínima de 48h.
 - Excluir contas inativas, cargo/unidade inativos, vínculos inconsistentes entre
   workspaces e eventos cancelados. Prazo próximo não é requisito: qualquer pendência
-  elegível conta. Envio em análise deixa de ser cobrança ao colaborador.
+  elegível dentro do prazo conta. O prazo usa `turma.data_termino` e o instante
+  atual em `America/Sao_Paulo`; no instante do encerramento, já não há cobrança
+  de envio. A regra também vale na revalidação de tentativas pendentes.
+  Envio em análise deixa de ser cobrança ao colaborador.
+
+Essa regra evita gerar novos lembretes genéricos por participações que o mobile
+exibe como "Prazo encerrado". Notificações já gravadas permanecem no histórico;
+essa alteração não exclui documentos nem modifica eventos.
 
 ## Fluxo e contrato
 

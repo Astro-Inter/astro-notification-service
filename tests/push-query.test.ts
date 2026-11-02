@@ -18,13 +18,16 @@ beforeEach(async () => {
       (4,2,2,'COLABORADOR','ATIVO','other-workspace'),(5,1,1,'COLABORADOR','DESATIVADO','inactive'),
       (6,1,1,'COLABORADOR','ATIVO',NULL);
     INSERT INTO evento VALUES (1,3,'Evento','ATIVO'),(2,3,'Cancelado','CANCELADO');
-    INSERT INTO turma VALUES (1,1,'2020-01-01'),(2,1,'2030-01-01'),(3,2,'2030-01-01');`);
+    INSERT INTO turma VALUES
+      (1,1,(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo') - interval '1 day'),
+      (2,1,(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo') + interval '1 day'),
+      (3,2,(CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo') + interval '1 day');`);
 });
 async function recipients(after = "0", limit = 100) {
   const query = pendingRecipientsQuery(after, limit);
   return (await db.query<{ user_id: string; uid: string }>(query.text, query.values)).rows.map(row => row.user_id);
 }
-it("qualquer prazo e várias turmas geram um único destinatário; o gestor acompanha a equipe", async () => {
+it("turma vigente mantém destinatário único mesmo com outra turma vencida", async () => {
   await db.exec("INSERT INTO turma_colaborador VALUES (1,1,2),(2,2,2)");
   expect(await recipients()).toEqual(["2", "3"]);
   expect(await recipients("2", 1)).toEqual(["3"]);
@@ -39,7 +42,7 @@ it("quem já enviou não é cobrado; apenas o gestor recebe enquanto aguarda val
 it("exclui cancelados, vínculos entre workspaces, inativos e contas sem UID", async () => {
   await db.exec("INSERT INTO turma_colaborador VALUES (1,3,2),(2,1,4),(3,1,5)");
   expect(await recipients()).toEqual([]);
-  await db.exec("INSERT INTO turma_colaborador VALUES (4,1,6)");
+  await db.exec("INSERT INTO turma_colaborador VALUES (4,2,6)");
   expect(await recipients()).toEqual(["3"]);
 });
 it("rejeição é pendência; envio para validação não exige esperar 48h", async () => {
@@ -48,8 +51,29 @@ it("rejeição é pendência; envio para validação não exige esperar 48h", as
   expect(await recipients()).toEqual(["2", "3"]);
 });
 it("não usa evento cujo responsável perdeu o perfil ou possui cargo inativo", async () => {
-  await db.exec("INSERT INTO turma_colaborador VALUES (1,1,2); UPDATE usuario SET tipo='COLABORADOR' WHERE id_usuario=3");
+  await db.exec("INSERT INTO turma_colaborador VALUES (1,2,2); UPDATE usuario SET tipo='COLABORADOR' WHERE id_usuario=3");
   expect(await recipients()).toEqual([]);
   await db.exec("UPDATE usuario SET tipo='GESTOR' WHERE id_usuario=3; INSERT INTO cargo VALUES (3,1,false); UPDATE usuario SET cargo_id=3 WHERE id_usuario=3");
   expect(await recipients()).toEqual([]);
+});
+
+it("exclui envio ausente, rejeitado ou não enviado após o prazo, inclusive para o gestor", async () => {
+  await db.exec("INSERT INTO turma_colaborador VALUES (1,1,2)");
+  expect(await recipients()).toEqual([]);
+  await db.exec("INSERT INTO conclusao_evento VALUES (1,1,'REJEITADO',NULL,NULL)");
+  expect(await recipients()).toEqual([]);
+  await db.exec("UPDATE conclusao_evento SET status='PENDENTE'");
+  expect(await recipients()).toEqual([]);
+  const current = pendingRecipientsQuery("0", 100, "2");
+  expect((await db.query(current.text, current.values)).rows).toEqual([]);
+});
+
+it("prazo no instante atual já está encerrado e não depende do fuso da conexão", async () => {
+  await db.exec("BEGIN; SET LOCAL TIME ZONE 'Asia/Tokyo'; INSERT INTO turma_colaborador VALUES (1,2,2)");
+  try {
+    await db.exec("UPDATE turma SET data_termino = CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo' WHERE id_turma=2");
+    expect(await recipients()).toEqual([]);
+    await db.exec("UPDATE turma SET data_termino = data_termino + interval '1 second' WHERE id_turma=2");
+    expect(await recipients()).toEqual(["2", "3"]);
+  } finally { await db.exec("ROLLBACK"); }
 });

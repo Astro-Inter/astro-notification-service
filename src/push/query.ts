@@ -1,7 +1,7 @@
 import type { RuleQuery } from "../rules/queries";
 
-// Mesmas situações da Home: envio ainda não realizado/rejeitado ou validação pendente.
-// O gestor também acompanha qualquer pendência dos participantes de seus eventos.
+// Cobrar envio somente enquanto a turma estiver dentro do prazo.
+// Validações já enviadas continuam pendentes para o gestor após esse prazo.
 export function pendingRecipientsQuery(after: string, limit: number, userId?: string): RuleQuery {
   return { text: `SELECT u.id_usuario::text AS user_id, u.firebase_uid AS uid
     FROM public.usuario u
@@ -22,6 +22,7 @@ export function pendingRecipientsQuery(after: string, limit: number, userId?: st
           JOIN public.cargo cg ON cg.id_cargo = gestor.cargo_id AND cg.workspace_id = ug.workspace_id AND cg.ativo IS TRUE
           LEFT JOIN public.conclusao_evento ce ON ce.turma_colaborador_id = tf.id_turma_colaborador
           WHERE tf.usuario_id = u.id_usuario AND e.status = 'ATIVO'
+            AND t.data_termino > (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
             AND (ce.id_conclusao_evento IS NULL OR ce.status = 'REJEITADO'
               OR (ce.status = 'PENDENTE' AND ce.data_conclusao IS NULL))
         ) OR (
@@ -36,7 +37,9 @@ export function pendingRecipientsQuery(after: string, limit: number, userId?: st
             LEFT JOIN public.conclusao_evento ce ON ce.turma_colaborador_id = tf.id_turma_colaborador
             WHERE e.gestor_id = u.id_usuario AND e.status <> 'CANCELADO' AND (
               (ce.status = 'PENDENTE' AND ce.data_conclusao IS NOT NULL AND ce.data_validacao IS NULL)
-              OR (e.status = 'ATIVO' AND (ce.id_conclusao_evento IS NULL OR ce.status = 'REJEITADO'
+              OR (e.status = 'ATIVO'
+                AND t.data_termino > (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')
+                AND (ce.id_conclusao_evento IS NULL OR ce.status = 'REJEITADO'
                 OR (ce.status = 'PENDENTE' AND ce.data_conclusao IS NULL)))
             )
           )
